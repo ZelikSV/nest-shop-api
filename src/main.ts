@@ -10,6 +10,7 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port);
 
+  // eslint-disable-next-line no-console
   console.log(`Application is running on: http://localhost:${port}`);
 }
 
