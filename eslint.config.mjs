@@ -56,7 +56,6 @@ export default tseslint.config(
       'no-var': 'error',
       eqeqeq: ['error', 'always'],
       curly: ['error', 'all'],
-      'max-lines-per-function': ['warn', { max: 50, skipBlankLines: true, skipComments: true }],
       'max-depth': ['warn', 4],
       complexity: ['warn', 10],
       'prettier/prettier': ['error', { endOfLine: 'auto' }],
