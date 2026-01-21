@@ -47,7 +47,6 @@ export default tseslint.config(
         },
       ],
       '@typescript-eslint/interface-name-prefix': 'off',
-      '@typescript-eslint/explicit-module-boundary-types': 'warn',
       '@typescript-eslint/no-empty-interface': 'warn',
       '@typescript-eslint/no-inferrable-types': 'off',
       'no-console': ['warn', { allow: ['warn', 'error'] }],
