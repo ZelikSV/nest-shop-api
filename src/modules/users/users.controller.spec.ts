@@ -31,14 +31,11 @@ describe('UsersController', () => {
     jest.clearAllMocks();
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
   describe('getUsers', () => {
     it('should return all users', () => {
       mockUsersService.getUsers.mockReturnValue(users);
       const result = controller.getUsers();
+
       expect(result).toEqual(users);
       expect(mockUsersService.getUsers).toHaveBeenCalled();
     });
@@ -49,6 +46,7 @@ describe('UsersController', () => {
       const user = users[0];
       mockUsersService.getUserById.mockReturnValue(user);
       const result = controller.getUsersById(user.id);
+
       expect(result).toEqual(user);
       expect(mockUsersService.getUserById).toHaveBeenCalledWith(user.id);
     });
@@ -65,6 +63,7 @@ describe('UsersController', () => {
       };
       mockUsersService.createNewUser.mockReturnValue(newUser);
       const result = controller.createUser(newUser);
+
       expect(result).toEqual(newUser);
       expect(mockUsersService.createNewUser).toHaveBeenCalledWith(newUser);
     });
@@ -80,6 +79,7 @@ describe('UsersController', () => {
       };
       mockUsersService.updateUser.mockReturnValue(updateData);
       const result = controller.updateUser('user-id', updateData);
+
       expect(result).toEqual(updateData);
       expect(mockUsersService.updateUser).toHaveBeenCalledWith('user-id', updateData);
     });
@@ -90,6 +90,7 @@ describe('UsersController', () => {
       const userId = 'user-id';
       mockUsersService.deleteUser.mockReturnValue(userId);
       const result = controller.deleteUser(userId);
+
       expect(result).toBe(userId);
       expect(mockUsersService.deleteUser).toHaveBeenCalledWith(userId);
     });

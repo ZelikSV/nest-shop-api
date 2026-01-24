@@ -14,13 +14,10 @@ describe('UsersService', () => {
     service = module.get<UsersService>(UsersService);
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
   describe('getUsers', () => {
     it('should return all users', () => {
       const result = service.getUsers();
+
       expect(result).toEqual(users);
       expect(result).toHaveLength(3);
     });
@@ -30,11 +27,13 @@ describe('UsersService', () => {
     it('should return a user by id', () => {
       const existingUser = users[0];
       const result = service.getUserById(existingUser.id);
+
       expect(result).toEqual(existingUser);
     });
 
     it('should return undefined for non-existent user', () => {
       const result = service.getUserById('non-existent-id');
+
       expect(result).toBeUndefined();
     });
   });
@@ -49,12 +48,14 @@ describe('UsersService', () => {
         email: 'new.user@example.com',
       };
       const result = service.createNewUser(newUser);
+
       expect(result).toEqual(newUser);
     });
 
     it('should return undefined when user already exists', () => {
       const existingUser = users[0];
       const result = service.createNewUser(existingUser);
+
       expect(result).toBeUndefined();
     });
   });
@@ -69,6 +70,7 @@ describe('UsersService', () => {
         email: 'updated@example.com',
       };
       const result = service.updateUser(existingUser.id, updateData);
+
       expect(result).toEqual(updateData);
     });
 
@@ -80,6 +82,7 @@ describe('UsersService', () => {
         email: 'updated@example.com',
       };
       const result = service.updateUser('non-existent-id', updateData);
+
       expect(result).toBeUndefined();
     });
   });
@@ -88,11 +91,13 @@ describe('UsersService', () => {
     it('should return id when user exists and can be deleted', () => {
       const existingUser = users[0];
       const result = service.deleteUser(existingUser.id);
+
       expect(result).toBe(existingUser.id);
     });
 
     it('should return undefined when no users remain after filter', () => {
       const result = service.deleteUser('id-that-matches-all-somehow');
+
       expect(result).toBe('id-that-matches-all-somehow');
     });
   });

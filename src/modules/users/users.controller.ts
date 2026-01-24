@@ -30,7 +30,7 @@ export class UsersController {
     return this.usersService.getUserById(id);
   }
 
-  @Post()
+  @Post('new')
   createUser(@Body() createUserDto: CreateUserDto) {
     return this.usersService.createNewUser(createUserDto);
   }
