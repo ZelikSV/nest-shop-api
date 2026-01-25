@@ -25,6 +25,6 @@ jobs:
         with:
           # Additional arguments for the SonarScanner CLI
           args: >
-            -Dsonar.projectKey=potato-serhii
-            -Dsonar.organization=serhii
+            -Dsonar.projectKey=nest-shop-api
+            -Dsonar.organization=potato-serhii
           projectBaseDir: .
