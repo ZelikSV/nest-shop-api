@@ -16,7 +16,12 @@ export class UsersService {
   }
 
   createNewUser(newUser: CreateUserDto) {
-    const existedUser = users.find((user) => user.id === newUser.id);
+    const existedUser = users.find(
+      (user) =>
+        user.firstName === newUser.firstName ||
+        user.email === newUser.email ||
+        user.lastName === newUser.lastName,
+    );
 
     if (existedUser) {
       return;
