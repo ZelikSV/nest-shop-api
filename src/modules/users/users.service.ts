@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 
 import { users } from '../../common/mocks/users';
 import { IUser } from '../../common/types/users';
@@ -11,11 +11,17 @@ export class UsersService {
     return users;
   }
 
-  getUserById(id: string) {
-    return users.find((user) => user.id === id);
+  getUserById(id: string): IUser {
+    const user = users.find((user) => user.id === id);
+
+    if (!user) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+
+    return user;
   }
 
-  createNewUser(newUser: CreateUserDto) {
+  createNewUser(newUser: CreateUserDto): IUser {
     const existedUser = users.find(
       (user) =>
         user.firstName === newUser.firstName ||
@@ -24,29 +30,29 @@ export class UsersService {
     );
 
     if (existedUser) {
-      return;
+      throw new ConflictException('User with this data already exists');
     }
 
-    return newUser;
+    return newUser as IUser;
   }
 
-  updateUser(id: string, updateUser: UpdateUserDto) {
+  updateUser(id: string, updateUser: UpdateUserDto): IUser {
     const existedUser = users.find((user) => user.id === id);
 
-    if (existedUser) {
-      return updateUser;
+    if (!existedUser) {
+      throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    return;
+    return { ...existedUser, ...updateUser };
   }
 
-  deleteUser(id: string) {
-    const updatedUsers = users.filter((user) => user.id !== id);
+  deleteUser(id: string): void {
+    const userIndex = users.findIndex((user) => user.id === id);
 
-    if (updatedUsers.length) {
-      return id;
+    if (userIndex === -1) {
+      throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    return;
+    users.splice(userIndex, 1);
   }
 }

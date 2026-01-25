@@ -23,8 +23,8 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port);
 
-  logger.log(`🚀Application is running on: http://localhost:${port}`);
-  logger.log(`🚀Api is running on: http://localhost:${port}/v1/users`);
+  logger.log(`🚀Application is running on: http://localhost:${port}/api`);
+  logger.log(`🚀Api is running on: http://localhost:${port}/api/v1/users`);
   logger.log(`🚀Swagger is running on: http://localhost:${port}/api-docs`);
 }
 
