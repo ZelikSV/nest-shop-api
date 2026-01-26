@@ -22,4 +22,11 @@ export const users: IUser[] = [
     age: 42,
     email: 'mike.johnson@example.com',
   },
+  {
+    id: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
+    firstName: 'Tony',
+    lastName: 'visly',
+    age: 35,
+    email: 'tony.visly@example.com',
+  },
 ];
