@@ -26,17 +26,7 @@ export class OrdersService {
     private readonly dataSource: DataSource,
   ) {}
 
-  /**
-   * Creates an order transactionally with idempotency and oversell protection.
-   *
-   * Concurrency: Pessimistic locking (FOR NO KEY UPDATE)
-   * - Short-lived transaction -> minimal lock time
-   * - Guaranteed forward progress (no starvation, no retry needed)
-   * - FOR NO KEY UPDATE doesn't block FK checks -> less contention
-   * - Product IDs sorted before locking -> deadlock prevention
-   */
   async createOrder(dto: CreateOrderDto): Promise<Order> {
-    // Idempotency check (outside transaction for performance)
     const existingOrder = await this.findExistingOrder(dto.userId, dto.idempotencyKey);
     if (existingOrder) {
       this.logger.log(
@@ -104,8 +94,6 @@ export class OrdersService {
     return order;
   }
 
-  // --- Private helpers ---
-
   private async findExistingOrder(userId: string, idempotencyKey: string): Promise<Order | null> {
     return this.orderRepository.findOne({
       where: { userId, idempotencyKey },
@@ -117,20 +105,15 @@ export class OrdersService {
     queryRunner: QueryRunner,
     dto: CreateOrderDto,
   ): Promise<Order> {
-    // Lock product rows (pessimistic_write -> FOR NO KEY UPDATE)
-    // Sort IDs to prevent deadlocks (consistent lock ordering)
     const productMap = await this.lockAndLoadProducts(queryRunner, dto.items);
 
-    // Validate stock for all items
     this.validateStock(productMap, dto.items);
 
-    // Calculate totalPrice
     const totalPrice = dto.items.reduce((sum, item) => {
       const product = productMap.get(item.productId)!;
       return sum + Number(product.price) * item.quantity;
     }, 0);
 
-    // Create Order
     const order = queryRunner.manager.create(Order, {
       userId: dto.userId,
       idempotencyKey: dto.idempotencyKey,
@@ -139,7 +122,6 @@ export class OrdersService {
     });
     const savedOrder = await queryRunner.manager.save(Order, order);
 
-    // Create OrderItems with snapshot prices
     const orderItems = dto.items.map((item) => {
       const product = productMap.get(item.productId)!;
       return queryRunner.manager.create(OrderItem, {
@@ -151,7 +133,6 @@ export class OrdersService {
     });
     await queryRunner.manager.save(OrderItem, orderItems);
 
-    // Decrement product stock atomically
     for (const item of dto.items) {
       await queryRunner.manager
         .createQueryBuilder()
@@ -200,12 +181,10 @@ export class OrdersService {
   }
 
   private async handleCreateOrderError(error: unknown, dto: CreateOrderDto): Promise<Order> {
-    // Re-throw known HTTP exceptions
     if (error instanceof BadRequestException || error instanceof ConflictException) {
       throw error;
     }
 
-    // Race condition: unique constraint violation on idempotencyKey
     if (error instanceof Error && 'code' in error && (error as { code: string }).code === '23505') {
       const concurrentOrder = await this.findExistingOrder(dto.userId, dto.idempotencyKey);
       if (concurrentOrder) {
@@ -216,11 +195,11 @@ export class OrdersService {
       }
     }
 
-    // Unknown error
     this.logger.error(
       'Order creation failed',
       error instanceof Error ? error.stack : String(error),
     );
+
     throw new InternalServerErrorException('Order creation failed. Please try again.');
   }
 }
