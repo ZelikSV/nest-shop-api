@@ -5,3 +5,10 @@ export interface IUser {
   age: number;
   email: string;
 }
+
+export interface IProduct {
+  name: string;
+  description: string;
+  price: number;
+  stock: number;
+}

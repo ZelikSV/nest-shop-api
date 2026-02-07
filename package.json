@@ -19,6 +19,11 @@
     "test:cov": "jest --config jest.config.js --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config jest-e2e.config.js",
+    "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
+    "migration:generate": "yarn build && yarn typeorm migration:generate -d dist/config/data-source.js",
+    "migration:run": "yarn build && yarn typeorm migration:run -d dist/config/data-source.js",
+    "migration:revert": "yarn build && yarn typeorm migration:revert -d dist/config/data-source.js",
+    "seed": "ts-node -r tsconfig-paths/register src/seeds/seed.ts",
     "prepare": "husky"
   },
   "dependencies": {
@@ -26,10 +31,14 @@
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.12",
     "@nestjs/platform-express": "^11.1.12",
+    "@nestjs/typeorm": "^11.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
+    "dotenv": "^17.2.4",
+    "pg": "^8.18.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "typeorm": "^0.3.28"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

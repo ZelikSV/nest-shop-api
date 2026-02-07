@@ -1,128 +1,150 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { UsersService } from './users.service';
-import { users } from '../../common/mocks/users';
+import { User } from './user.entity';
+import { MOCK_USERS } from '../../common/mocks/users';
+
+const mockUsers: User[] = MOCK_USERS.map((u) => ({
+  ...u,
+  orders: [],
+  createdAt: new Date(),
+  updatedAt: new Date(),
+}));
 
 describe('UsersService', () => {
   let service: UsersService;
-  const mockedNonExistentId = '1234';
+
+  const mockUserRepository = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
+    delete: jest.fn(),
+  };
+
+  const mockedNonExistentId = 'b2c3d4e5-f6a7-8901-bcde-f12345678911';
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersService],
+      providers: [
+        UsersService,
+        {
+          provide: getRepositoryToken(User),
+          useValue: mockUserRepository,
+        },
+      ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
+    jest.clearAllMocks();
   });
 
   describe('getUsers', () => {
-    it('should return all users', () => {
-      const result = service.getUsers();
+    it('should return all users', async () => {
+      mockUserRepository.find.mockResolvedValue(mockUsers);
+      const result = await service.getUsers();
 
-      expect(result).toEqual(users);
+      expect(result).toEqual(mockUsers);
+      expect(mockUserRepository.find).toHaveBeenCalled();
     });
   });
 
   describe('getUserById', () => {
-    it('should return a user by id', () => {
-      const existingUser = users[0];
-      const result = service.getUserById(existingUser.id);
+    it('should return a user by id', async () => {
+      const existingUser = mockUsers[0];
+      mockUserRepository.findOne.mockResolvedValue(existingUser);
+      const result = await service.getUserById(existingUser.id);
 
       expect(result).toEqual(existingUser);
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({ where: { id: existingUser.id } });
     });
 
-    it('should throw NotFoundException for non-existent user', () => {
-      expect(() => service.getUserById(mockedNonExistentId)).toThrow(NotFoundException);
-      expect(() => service.getUserById(mockedNonExistentId)).toThrow(
+    it('should throw NotFoundException for non-existent user', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.getUserById(mockedNonExistentId)).rejects.toThrow(NotFoundException);
+      await expect(service.getUserById(mockedNonExistentId)).rejects.toThrow(
         `User with id ${mockedNonExistentId} not found`,
       );
     });
   });
 
   describe('createNewUser', () => {
-    it('should return new user when user does not exist', () => {
-      const newUser = {
-        id: 'new-user-id-12345',
+    it('should return new user when user does not exist', async () => {
+      const newUserDto = {
         firstName: 'Unique',
         lastName: 'Person',
         age: 25,
         email: 'unique.person@example.com',
       };
-      const result = service.createNewUser(newUser);
+      const createdUser = { id: 'new-uuid', ...newUserDto };
 
-      expect(result).toEqual(newUser);
+      mockUserRepository.findOne.mockResolvedValue(null);
+      mockUserRepository.create.mockReturnValue(createdUser);
+      mockUserRepository.save.mockResolvedValue(createdUser);
+
+      const result = await service.createNewUser(newUserDto);
+
+      expect(result).toEqual(createdUser);
+      expect(mockUserRepository.create).toHaveBeenCalledWith(newUserDto);
+      expect(mockUserRepository.save).toHaveBeenCalledWith(createdUser);
     });
 
-    it('should throw ConflictException when user with same email exists', () => {
-      const existingUser = users[0];
+    it('should throw ConflictException when user with same email exists', async () => {
       const duplicateUser = {
-        id: 'new-id',
         firstName: 'Different',
         lastName: 'Name',
         age: 30,
-        email: existingUser.email,
+        email: mockUsers[0].email,
       };
 
-      expect(() => service.createNewUser(duplicateUser)).toThrow(ConflictException);
-      expect(() => service.createNewUser(duplicateUser)).toThrow(
-        'User with this data already exists',
+      mockUserRepository.findOne.mockResolvedValue(mockUsers[0]);
+
+      await expect(service.createNewUser(duplicateUser)).rejects.toThrow(ConflictException);
+      await expect(service.createNewUser(duplicateUser)).rejects.toThrow(
+        `User with email ${duplicateUser.email} already exists`,
       );
-    });
-
-    it('should throw ConflictException when user with same firstName exists', () => {
-      const existingUser = users[0];
-      const duplicateUser = {
-        id: 'new-id',
-        firstName: existingUser.firstName,
-        lastName: 'Different',
-        age: 30,
-        email: 'different@example.com',
-      };
-
-      expect(() => service.createNewUser(duplicateUser)).toThrow(ConflictException);
     });
   });
 
   describe('updateUser', () => {
-    it('should return updated user data when user exists', () => {
-      const existingUser = users[0];
-      const updateData = {
-        firstName: 'Updated',
-        lastName: 'Name',
-        age: 30,
-        email: 'updated@example.com',
-      };
-      const result = service.updateUser(existingUser.id, updateData);
+    it('should return updated user data when user exists', async () => {
+      const existingUser = { ...mockUsers[0] };
+      const updateData = { firstName: 'Updated', age: 30 };
+      const updatedUser = { ...existingUser, ...updateData };
 
-      expect(result).toEqual({ ...existingUser, ...updateData });
+      mockUserRepository.findOne.mockResolvedValue(existingUser);
+      mockUserRepository.save.mockResolvedValue(updatedUser);
+
+      const result = await service.updateUser(existingUser.id, updateData);
+
+      expect(result).toEqual(updatedUser);
     });
 
-    it('should throw NotFoundException when user does not exist', () => {
-      const updateData = {
-        firstName: 'Updated',
-      };
+    it('should throw NotFoundException when user does not exist', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
 
-      expect(() => service.updateUser(mockedNonExistentId, updateData)).toThrow(NotFoundException);
-      expect(() => service.updateUser(mockedNonExistentId, updateData)).toThrow(
-        `User with id ${mockedNonExistentId} not found`,
-      );
+      await expect(
+        service.updateUser(mockedNonExistentId, { firstName: 'Updated' }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('deleteUser', () => {
-    it('should delete user when user exists', () => {
-      const existingUser = users[0];
-      const initialLength = users.length;
+    it('should delete user when user exists', async () => {
+      mockUserRepository.delete.mockResolvedValue({ affected: 1 });
 
-      expect(() => service.deleteUser(existingUser.id)).not.toThrow();
-      expect(users.length).toBe(initialLength - 1);
-      expect(users.find((u) => u.id === existingUser.id)).toBeUndefined();
+      await expect(service.deleteUser(mockUsers[0].id)).resolves.toBeUndefined();
+      expect(mockUserRepository.delete).toHaveBeenCalledWith(mockUsers[0].id);
     });
 
-    it('should throw NotFoundException when user does not exist', () => {
-      expect(() => service.deleteUser(mockedNonExistentId)).toThrow(NotFoundException);
-      expect(() => service.deleteUser(mockedNonExistentId)).toThrow(
+    it('should throw NotFoundException when user does not exist', async () => {
+      mockUserRepository.delete.mockResolvedValue({ affected: 0 });
+
+      await expect(service.deleteUser(mockedNonExistentId)).rejects.toThrow(NotFoundException);
+      await expect(service.deleteUser(mockedNonExistentId)).rejects.toThrow(
         `User with id ${mockedNonExistentId} not found`,
       );
     });

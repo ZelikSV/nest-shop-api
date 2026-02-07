@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
@@ -43,7 +45,7 @@ export class UsersController {
 
   @Post('new')
   @ApiOperation({ summary: 'Create user' })
-  @ApiResponse({ status: 200, type: UserResponseDto })
+  @ApiResponse({ status: 201, type: UserResponseDto })
   createUser(@Body() createUserDto: CreateUserDto) {
     return this.usersService.createNewUser(createUserDto);
   }
@@ -56,6 +58,7 @@ export class UsersController {
   }
 
   @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete user' })
   @ApiResponse({ status: 204 })
   deleteUser(@Param('id', new ParseUUIDPipe()) id: string) {

@@ -11,21 +11,30 @@ async function bootstrap(): Promise<void> {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3000);
 
+  const globalPrefix = 'api';
+  const apiVersion = '1';
+  const swaggerPath = 'api-docs';
+
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix(globalPrefix);
   app.enableVersioning({ type: VersioningType.URI });
 
   const config = new DocumentBuilder().setTitle('shop api').setVersion('1.0').build();
   const document = SwaggerModule.createDocument(app, config);
 
-  SwaggerModule.setup('api-docs', app, document);
+  SwaggerModule.setup(swaggerPath, app, document);
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
-  logger.log(`🚀Application is running on: http://localhost:${port}/api`);
-  logger.log(`🚀Api is running on: http://localhost:${port}/api/v1/users`);
-  logger.log(`🚀Swagger is running on: http://localhost:${port}/api-docs`);
+  const baseUrl = `http://localhost:${port}`;
+  const apiBase = `${baseUrl}/${globalPrefix}/v${apiVersion}`;
+
+  logger.log(`Application is running on: ${baseUrl}/${globalPrefix}`);
+  logger.log(`Swagger is running on: ${baseUrl}/${swaggerPath}`);
+  logger.log(`${apiBase}/orders`);
+  logger.log(`${apiBase}/products`);
+  logger.log(`${apiBase}/users`);
 }
 
 void bootstrap();

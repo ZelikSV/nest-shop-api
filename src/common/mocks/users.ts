@@ -1,6 +1,6 @@
-import { type IUser } from '../types/users';
+import { type IUser } from '../types';
 
-export const users: IUser[] = [
+export const MOCK_USERS: IUser[] = [
   {
     id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     firstName: 'John',
@@ -21,12 +21,5 @@ export const users: IUser[] = [
     lastName: 'Johnson',
     age: 42,
     email: 'mike.johnson@example.com',
-  },
-  {
-    id: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
-    firstName: 'Tony',
-    lastName: 'visly',
-    age: 35,
-    email: 'tony.visly@example.com',
   },
 ];
