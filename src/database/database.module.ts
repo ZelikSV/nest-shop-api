@@ -17,9 +17,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         autoLoadEntities: true,
         synchronize: false,
         logging: configService.get<string>('NODE_ENV') === 'development',
-        ssl: {
-          rejectUnauthorized: false,
-        },
+        ssl: configService.get<string>('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
       }),
     }),
   ],

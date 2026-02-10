@@ -22,6 +22,12 @@ E-commerce REST API built with NestJS.
 | `GET` | `/api/v1/orders/user/:userId` | Get orders by user |
 | `GET` | `/api/v1/orders/:id` | Get order by ID |
 
+## Requirements
+
+- **Node.js** 24.11.0 or higher
+- **Yarn** 1.22.0 or higher
+- **PostgreSQL** 14+
+
 ## Architecture
 
 Modular architecture inspired by Angular: modules, decorators, dependency injection, services, guards, pipes, interceptors.
@@ -87,6 +93,12 @@ The app loads env files in this order (first found wins):
 1. `.env.development.local` — local secrets, not committed
 2. `.env.development` — env-specific config
 3. `.env` — fallback
+
+**Important:** TypeORM CLI commands (migrations, seed) use `.env` file directly. For local development:
+- Create `.env.development.local` for the app runtime
+- Also create `.env` for migrations/seed scripts
+- Set `DB_SSL=false` for local PostgreSQL (without SSL)
+- Set `DB_SSL=true` for production databases (Render, AWS RDS, etc.)
 
 ## Quick Start
 
