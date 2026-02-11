@@ -1,10 +1,12 @@
 # Nest Shop API
 
-E-commerce REST API built with NestJS.
+E-commerce REST API + GraphQL built with NestJS.
 
 **Live Demo:** [https://nest-shop-api-0shf.onrender.com/api-docs](https://nest-shop-api-0shf.onrender.com/api-docs)
 
 ## API Endpoints
+
+### REST API
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -21,6 +23,18 @@ E-commerce REST API built with NestJS.
 | `POST` | `/api/v1/orders` | Create order (idempotent) |
 | `GET` | `/api/v1/orders/user/:userId` | Get orders by user |
 | `GET` | `/api/v1/orders/:id` | Get order by ID |
+
+### GraphQL API
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST` `/graphql` | GraphQL endpoint for all queries/mutations |
+| `GET` `/graphql` | GraphQL Playground (development only) |
+
+**Available Queries:**
+- `orders(userId: ID!, filter: OrdersFilterInput, pagination: OrdersPaginationInput): [Order!]!` - Get orders with filtering and pagination
+
+**See [homework07.md](./homework07.md) for detailed GraphQL documentation.**
 
 ## Requirements
 
@@ -141,10 +155,13 @@ yarn start:dev
 |---|---|
 | NestJS 11 | Framework |
 | TypeScript 5 | Language |
+| GraphQL | API (code-first approach) |
+| Apollo Server | GraphQL server |
+| DataLoader | Query batching & caching |
 | PostgreSQL | Database |
 | TypeORM | ORM |
 | Jest 30 | Testing |
-| Swagger | API docs |
+| Swagger | REST API docs |
 | ESLint + Prettier | Code style |
 | Husky | Git hooks |
 
@@ -292,6 +309,363 @@ Execution Time: 0.130 ms
 - **Seq Scan** reads all 200 rows and discards 186 via post-filter. **Index Scan** reads only the 14 matching rows directly from the B-tree — zero wasted I/O.
 - **Index Scan Backward** traverses the index in descending `createdAt` order, which aligns with `ORDER BY createdAt DESC`. With a larger dataset, PostgreSQL can eliminate the Sort step entirely.
 - On 200 rows the absolute time difference is negligible (milliseconds). On a production table with millions of orders the difference becomes critical: Seq Scan grows linearly with table size (O(n)), while Index Scan stays proportional to the result set (O(log n + k)).
+
+## Homework 07 — GraphQL API + DataLoader
+
+Complete implementation of GraphQL API for the Orders system using NestJS code-first approach with N+1 query optimization through DataLoader.
+
+### 1. Code-First Approach
+
+**Why Code-First?**
+
+- **TypeScript-First:** Project already uses TypeORM entities with decorators - code-first naturally extends this pattern
+- **Less Duplication:** No separate `.graphql` files - `@ObjectType` and `@Field` decorators auto-generate schema
+- **Type Safety:** Full compile-time type checking between resolvers and schema
+- **Better DX:** IntelliSense, auto-completion, refactoring work out-of-the-box
+
+**Configuration:**
+```typescript
+GraphQLModule.forRootAsync<ApolloDriverConfig>({
+  driver: ApolloDriver,
+  autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+  sortSchema: true,
+  playground: true,
+  context: ({ req }) => ({
+    loaders: {
+      productLoader: productsLoader.createProductLoader(), // Fresh per request
+    },
+  }),
+})
+```
+
+### 2. GraphQL Schema
+
+#### Domain Types
+
+**Product Type:**
+```typescript
+@ObjectType('Product')
+export class ProductType {
+  @Field(() => ID) id: string;
+  @Field() name: string;
+  @Field({ nullable: true }) description?: string;  // ✅ Nullable
+  @Field(() => Float) price: number;
+  @Field(() => Int) stock: number;
+}
+```
+
+**OrderItem Type:**
+```typescript
+@ObjectType('OrderItem')
+export class OrderItemType {
+  @Field(() => ID) id: string;
+  @Field(() => Int) quantity: number;
+  @Field(() => Float) price: number;
+  @Field(() => ID, { nullable: true }) productId?: string;  // ✅ Nullable if deleted
+  @Field(() => ProductType, { nullable: true }) product?: ProductType;
+}
+```
+
+**Order Type:**
+```typescript
+@ObjectType('Order')
+export class OrderType {
+  @Field(() => ID) id: string;
+  @Field(() => ID) userId: string;
+  @Field(() => OrderStatus) status: OrderStatus;  // ✅ Enum
+  @Field(() => Float) totalPrice: number;
+  @Field(() => [OrderItemType]) items: OrderItemType[];  // ✅ Non-nullable array
+  @Field() createdAt: Date;
+}
+```
+
+**OrderStatus Enum:**
+```typescript
+registerEnumType(OrderStatus, {
+  name: 'OrderStatus',
+  valuesMap: {
+    PENDING: { description: 'Order is pending confirmation' },
+    CONFIRMED: { description: 'Order has been confirmed' },
+    SHIPPED: { description: 'Order has been shipped' },
+    DELIVERED: { description: 'Order has been delivered' },
+    CANCELLED: { description: 'Order has been cancelled' },
+  },
+});
+```
+
+#### Input Types
+
+**OrdersFilterInput:**
+```typescript
+@InputType()
+export class OrdersFilterInput {
+  @Field(() => OrderStatus, { nullable: true })
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
+
+  @Field({ nullable: true })
+  @IsDateString()
+  dateFrom?: string;
+
+  @Field({ nullable: true })
+  @IsDateString()
+  dateTo?: string;
+}
+```
+
+**OrdersPaginationInput:**
+```typescript
+@InputType()
+export class OrdersPaginationInput {
+  @Field(() => Int, { nullable: true, defaultValue: 10 })
+  @Max(50)  // ✅ Protect against heavy queries
+  limit?: number = 10;
+
+  @Field(() => Int, { nullable: true, defaultValue: 0 })
+  @Min(0)
+  offset?: number = 0;
+}
+```
+
+### 3. Thin Resolvers Pattern
+
+**OrdersResolver** - only coordinates, delegates to service:
+```typescript
+@Resolver(() => OrderType)
+export class OrdersResolver {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @Query(() => [OrderType])
+  async orders(
+    @Args('userId', { type: () => ID }) userId: string,
+    @Args('filter', { nullable: true }) filter?: OrdersFilterInput,
+    @Args('pagination', { nullable: true }) pagination?: OrdersPaginationInput,
+  ): Promise<Order[]> {
+    // ✅ Convert GraphQL params
+    const startDate = filter?.dateFrom ? new Date(filter.dateFrom) : undefined;
+    const endDate = filter?.dateTo ? new Date(filter.dateTo) : undefined;
+
+    // ✅ Delegate to service (business logic stays here)
+    const allOrders = await this.ordersService.findOrdersByUser(
+      userId, filter?.status, startDate, endDate
+    );
+
+    // ✅ Apply pagination
+    const limit = pagination?.limit ?? 10;
+    const offset = pagination?.offset ?? 0;
+    return allOrders.slice(offset, offset + limit);
+  }
+}
+```
+
+**OrderItemResolver** - field resolver with DataLoader:
+```typescript
+@Resolver(() => OrderItemType)
+export class OrderItemResolver {
+  @ResolveField(() => ProductType, { nullable: true })
+  async product(
+    @Parent() orderItem: OrderItem,
+    @Context() context: any,
+  ): Promise<ProductType | null> {
+    if (!orderItem.productId) return null;
+
+    // ✅ DataLoader batches all loads into single query
+    return context.loaders.productLoader.load(orderItem.productId);
+  }
+}
+```
+
+### 4. DataLoader — Solving N+1 Problem
+
+#### The Problem
+
+**Without DataLoader:**
+```graphql
+query {
+  orders(userId: "user-123") {
+    items {
+      product { id, name }  # ❌ Separate SQL query for EACH item
+    }
+  }
+}
+```
+
+**SQL queries executed:**
+```sql
+-- 1 query for orders
+SELECT * FROM orders WHERE userId = 'user-123';
+
+-- N queries for products (one per item) 😱
+SELECT * FROM products WHERE id = 'product-1';
+SELECT * FROM products WHERE id = 'product-2';
+SELECT * FROM products WHERE id = 'product-3';
+-- ... 7 more for 10 items
+```
+
+**Result:** 1 + N queries = **11 SQL queries** for 10 items
+
+#### The Solution
+
+**Step 1 - Add `findByIds` to ProductsService:**
+```typescript
+async findByIds(ids: string[]): Promise<Product[]> {
+  return this.productRepository
+    .createQueryBuilder('product')
+    .where('product.id IN (:...ids)', { ids })  // ✅ Batched query
+    .getMany();
+}
+```
+
+**Step 2 - Create ProductsLoader:**
+```typescript
+@Injectable()
+export class ProductsLoader {
+  constructor(private readonly productsService: ProductsService) {}
+
+  createProductLoader(): DataLoader<string, Product | null> {
+    return new DataLoader<string, Product | null>(
+      async (productIds: readonly string[]) => {
+        const ids = [...productIds];
+        const products = await this.productsService.findByIds(ids);
+
+        // ✅ Map for O(1) lookups
+        const productMap = new Map(products.map(p => [p.id, p]));
+
+        // ✅ Return in same order as IDs, null for missing
+        return ids.map(id => productMap.get(id) ?? null);
+      },
+      { cache: true }
+    );
+  }
+}
+```
+
+**Step 3 - Integrate in GraphQL Context:**
+```typescript
+context: ({ req }) => ({
+  loaders: {
+    productLoader: productsLoader.createProductLoader(), // Fresh per request
+  },
+})
+```
+
+**Step 4 - Use in Field Resolver:**
+```typescript
+@ResolveField(() => ProductType, { nullable: true })
+async product(@Parent() orderItem: OrderItem, @Context() context: any) {
+  if (!orderItem.productId) return null;
+  return context.loaders.productLoader.load(orderItem.productId);
+}
+```
+
+#### The Result
+
+**With DataLoader:**
+```sql
+-- 1 query for orders
+SELECT * FROM orders WHERE userId = 'user-123';
+
+-- 1 BATCHED query for ALL products 🚀
+SELECT * FROM products WHERE id IN ('product-1', 'product-2', ..., 'product-10');
+```
+
+**Result:** 1 + 1 = **2 SQL queries** for 10 items
+
+**Improvement:** 11 queries → 2 queries = **5.5x less database load** ✅
+
+### 5. Example Queries
+
+**Basic query:**
+```graphql
+query GetOrders {
+  orders(userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890") {
+    id
+    status
+    totalPrice
+    createdAt
+    items {
+      quantity
+      price
+      product { id, name, price }
+    }
+  }
+}
+```
+
+**With filtering:**
+```graphql
+query GetPendingOrders {
+  orders(
+    userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    filter: { status: PENDING, dateFrom: "2024-01-01T00:00:00Z" }
+  ) {
+    id
+    status
+    totalPrice
+  }
+}
+```
+
+**With pagination:**
+```graphql
+query GetOrdersPage {
+  orders(
+    userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    pagination: { limit: 5, offset: 10 }
+  ) {
+    id
+    createdAt
+  }
+}
+```
+
+**Full example:**
+```graphql
+query GetRecentShippedOrders {
+  orders(
+    userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    filter: {
+      status: SHIPPED
+      dateFrom: "2024-12-01T00:00:00Z"
+      dateTo: "2024-12-31T23:59:59Z"
+    }
+    pagination: { limit: 20, offset: 0 }
+  ) {
+    id
+    status
+    totalPrice
+    items {
+      quantity
+      price
+      product { id, name, description, price, stock }
+    }
+  }
+}
+```
+
+### 6. Testing
+
+**Start server:**
+```bash
+NODE_ENV=development yarn start:dev
+```
+
+**GraphQL Playground:** `http://localhost:3000/graphql`
+
+**Check SQL logs in console:**
+```
+query: SELECT "order"."id", ... FROM "orders" ...
+query: SELECT "product".* FROM "products" WHERE "product"."id" IN ($1, $2, ...)
+```
+
+### Key Achievements
+
+✅ **Type Safety:** Full typing from database → service → resolver → GraphQL schema
+✅ **Performance:** 5.5x reduction in SQL queries through DataLoader
+✅ **Maintainability:** Business logic in services, thin resolvers
+✅ **DX:** Code-first approach with auto-generated schema
+✅ **Security:** Input validation, pagination limits (max 50)
+✅ **Error Handling:** GraphQL errors with meaningful messages
 
 ## Git Hooks
 

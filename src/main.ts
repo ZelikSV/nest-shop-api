@@ -29,9 +29,11 @@ async function bootstrap(): Promise<void> {
 
   const baseUrl = `http://localhost:${port}`;
   const apiBase = `${baseUrl}/${globalPrefix}/v${apiVersion}`;
+  const graphqlPath = 'graphql';
 
   logger.log(`Application is running on: ${baseUrl}/${globalPrefix}`);
   logger.log(`Swagger is running on: ${baseUrl}/${swaggerPath}`);
+  logger.log(`GraphQL Playground: ${baseUrl}/${graphqlPath}`);
   logger.log(`${apiBase}/orders`);
   logger.log(`${apiBase}/products`);
   logger.log(`${apiBase}/users`);

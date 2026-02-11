@@ -27,6 +27,17 @@ export class ProductsService {
     return product;
   }
 
+  async findByIds(ids: string[]): Promise<Product[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    return this.productRepository
+      .createQueryBuilder('product')
+      .where('product.id IN (:...ids)', { ids })
+      .getMany();
+  }
+
   async create(dto: CreateProductDto): Promise<Product> {
     const product = this.productRepository.create(dto);
     return this.productRepository.save(product);

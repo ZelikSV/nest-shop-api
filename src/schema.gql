@@ -1,0 +1,132 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+"""Order entity representing a customer order"""
+type Order {
+  """Order creation date"""
+  createdAt: DateTime!
+
+  """Unique order identifier"""
+  id: ID!
+
+  """Items in the order"""
+  items: [OrderItem!]!
+
+  """Current order status"""
+  status: OrderStatus!
+
+  """Total price of the order"""
+  totalPrice: Float!
+
+  """Order last update date"""
+  updatedAt: DateTime!
+
+  """User ID who placed the order"""
+  userId: ID!
+}
+
+"""Order item representing a product in an order"""
+type OrderItem {
+  """Order item creation date"""
+  createdAt: DateTime!
+
+  """Unique order item identifier"""
+  id: ID!
+
+  """Price of the product at the time of order"""
+  price: Float!
+
+  """Product details (null if product was deleted)"""
+  product: Product
+
+  """Product ID (null if product was deleted)"""
+  productId: ID
+
+  """Quantity of the product ordered"""
+  quantity: Int!
+}
+
+"""Order status enum representing different stages of order processing"""
+enum OrderStatus {
+  """Order has been cancelled"""
+  CANCELLED
+
+  """Order has been confirmed"""
+  CONFIRMED
+
+  """Order has been delivered"""
+  DELIVERED
+
+  """Order is pending confirmation"""
+  PENDING
+
+  """Order has been shipped"""
+  SHIPPED
+}
+
+"""Filter options for querying orders"""
+input OrdersFilterInput {
+  """Filter orders created after this date (ISO 8601 format)"""
+  dateFrom: String
+
+  """Filter orders created before this date (ISO 8601 format)"""
+  dateTo: String
+
+  """Filter orders by status"""
+  status: OrderStatus
+}
+
+"""Pagination options for querying orders"""
+input OrdersPaginationInput {
+  """Number of items to return (max 50)"""
+  limit: Int = 10
+
+  """Number of items to skip"""
+  offset: Int = 0
+}
+
+"""Product entity representing items available for purchase"""
+type Product {
+  """Product creation date"""
+  createdAt: DateTime!
+
+  """Product description"""
+  description: String
+
+  """Unique product identifier"""
+  id: ID!
+
+  """Product name"""
+  name: String!
+
+  """Product price"""
+  price: Float!
+
+  """Available stock quantity"""
+  stock: Int!
+
+  """Product last update date"""
+  updatedAt: DateTime!
+}
+
+type Query {
+  hello: String!
+
+  """Get orders for a specific user with optional filtering and pagination"""
+  orders(
+    """Filter options"""
+    filter: OrdersFilterInput
+
+    """Pagination options"""
+    pagination: OrdersPaginationInput
+
+    """User ID to fetch orders for"""
+    userId: ID!
+  ): [Order!]!
+}
