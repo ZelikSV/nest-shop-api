@@ -20,7 +20,11 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix(globalPrefix);
   app.enableVersioning({ type: VersioningType.URI });
 
-  const config = new DocumentBuilder().setTitle('shop api').setVersion('1.0').build();
+  const config = new DocumentBuilder()
+    .setTitle('shop api')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
   const document = SwaggerModule.createDocument(app, config);
 
   SwaggerModule.setup(swaggerPath, app, document);

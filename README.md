@@ -8,21 +8,41 @@ E-commerce REST API + GraphQL built with NestJS.
 
 ### REST API
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/users` | Get all users |
-| `GET` | `/api/v1/users/:id` | Get user by ID |
-| `POST` | `/api/v1/users/new` | Create user |
-| `PUT` | `/api/v1/users/:id` | Update user |
-| `DELETE` | `/api/v1/users/:id` | Delete user |
-| `GET` | `/api/v1/products` | Get all products |
-| `GET` | `/api/v1/products/:id` | Get product by ID |
-| `POST` | `/api/v1/products` | Create product |
-| `PUT` | `/api/v1/products/:id` | Update product |
-| `DELETE` | `/api/v1/products/:id` | Delete product |
-| `POST` | `/api/v1/orders` | Create order (idempotent) |
-| `GET` | `/api/v1/orders/user/:userId` | Get orders by user |
-| `GET` | `/api/v1/orders/:id` | Get order by ID |
+#### Auth (public)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/v1/auth/register` | — | Register new user, returns `accessToken` |
+| `POST` | `/api/v1/auth/login` | — | Login with email/password, returns `accessToken` |
+| `GET` | `/api/v1/auth/profile` | `Bearer` | Get current user profile |
+
+#### Users (Admin only 🔒)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/v1/users` | `Bearer` + ADMIN | Get all users |
+| `GET` | `/api/v1/users/:id` | `Bearer` + ADMIN | Get user by ID |
+| `POST` | `/api/v1/users/new` | `Bearer` + ADMIN | Create user |
+| `PUT` | `/api/v1/users/:id` | `Bearer` + ADMIN | Update user |
+| `DELETE` | `/api/v1/users/:id` | `Bearer` + ADMIN | Delete user |
+
+#### Products
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/v1/products` | — | Get all products |
+| `GET` | `/api/v1/products/:id` | — | Get product by ID |
+| `POST` | `/api/v1/products` | — | Create product |
+| `PUT` | `/api/v1/products/:id` | — | Update product |
+| `DELETE` | `/api/v1/products/:id` | — | Delete product |
+
+#### Orders
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/v1/orders` | — | Create order (idempotent) |
+| `GET` | `/api/v1/orders/user/:userId` | — | Get orders by user |
+| `GET` | `/api/v1/orders/:id` | — | Get order by ID |
 
 ### GraphQL API
 
@@ -35,6 +55,74 @@ E-commerce REST API + GraphQL built with NestJS.
 - `orders(userId: ID!, filter: OrdersFilterInput, pagination: OrdersPaginationInput): [Order!]!` - Get orders with filtering and pagination
 
 **See [homework07.md](./homework07.md) for detailed GraphQL documentation.**
+
+## Authentication
+
+The API uses **JWT Bearer token** authentication.
+
+### Flow
+
+```
+POST /api/v1/auth/register  →  { accessToken }
+POST /api/v1/auth/login     →  { accessToken }
+
+Authorization: Bearer <accessToken>  →  protected endpoints
+```
+
+### Register
+
+```http
+POST /api/v1/auth/register
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "age": 25,
+  "email": "john@example.com",
+  "password": "secret123"
+}
+```
+
+Response:
+```json
+{ "accessToken": "eyJhbGci..." }
+```
+
+### Login
+
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "john@example.com",
+  "password": "secret123"
+}
+```
+
+Response:
+```json
+{ "accessToken": "eyJhbGci..." }
+```
+
+### Using the token
+
+```http
+GET /api/v1/auth/profile
+Authorization: Bearer eyJhbGci...
+```
+
+### Roles
+
+| Role | Access |
+|------|--------|
+| `customer` | Default role on registration |
+| `admin` | Full access to `/api/v1/users/*` CRUD |
+
+Roles are embedded in the JWT payload and validated server-side via `RolesGuard`.
+
+---
 
 ## Requirements
 
@@ -56,8 +144,11 @@ Modular architecture inspired by Angular: modules, decorators, dependency inject
 src/
 ├── common/              # Shared stuff (guards, filters, decorators, mocks, types)
 │   ├── decorators/
+│   │   └── roles.decorator.ts     # @Roles() decorator
 │   ├── filters/
 │   ├── guards/
+│   │   ├── jwt-auth.guard.ts      # JwtAuthGuard
+│   │   └── roles.guard.ts         # RolesGuard
 │   ├── interceptors/
 │   ├── mocks/           # Shared mock data (single source of truth for seeds & tests)
 │   ├── pipes/
@@ -67,7 +158,15 @@ src/
 ├── migrations/          # TypeORM migrations
 ├── seeds/               # Database seed script
 └── modules/
-    ├── users/           # Users CRUD
+    ├── auth/            # JWT authentication (register, login, profile)
+    │   ├── dto/
+    │   ├── strategies/  # Passport JWT strategy
+    │   ├── auth.controller.ts
+    │   ├── auth.service.ts
+    │   └── auth.module.ts
+    ├── users/           # Users CRUD (Admin only)
+    │   └── enums/
+    │       └── user-role.enum.ts  # UserRole: ADMIN | CUSTOMER
     ├── products/        # Products CRUD
     └── orders/          # Orders (transactional creation)
 ```
@@ -95,7 +194,7 @@ Request -> Controller -> Service -> Repository -> PostgreSQL
 
 | Table | Description |
 |-------|-------------|
-| `users` | User accounts (email unique) |
+| `users` | User accounts (email unique, password hash, role: admin/customer) |
 | `products` | Product catalog with stock & versioning |
 | `orders` | Orders with idempotency key & status |
 | `order_items` | Order line items (snapshot price) |
@@ -113,6 +212,19 @@ The app loads env files in this order (first found wins):
 - Also create `.env` for migrations/seed scripts
 - Set `DB_SSL=false` for local PostgreSQL (without SSL)
 - Set `DB_SSL=true` for production databases (Render, AWS RDS, etc.)
+
+**Required variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `DB_*` | PostgreSQL connection |
+| `JWT_SECRET` | Secret key for signing JWT tokens |
+| `JWT_EXPIRES_IN` | Token TTL, e.g. `3600s` or `7d` |
+| `AWS_REGION` | S3 bucket region |
+| `AWS_ACCESS_KEY_ID` | AWS credentials |
+| `AWS_SECRET_ACCESS_KEY` | AWS credentials |
+| `S3_BUCKET_NAME` | Bucket for file uploads |
+| `CLOUDFRONT_BASE_URL` | CDN prefix for file URLs (optional) |
 
 ## Quick Start
 
@@ -155,11 +267,14 @@ yarn start:dev
 |---|---|
 | NestJS 11 | Framework |
 | TypeScript 5 | Language |
+| Passport + JWT | Authentication |
+| bcrypt | Password hashing |
 | GraphQL | API (code-first approach) |
 | Apollo Server | GraphQL server |
 | DataLoader | Query batching & caching |
 | PostgreSQL | Database |
 | TypeORM | ORM |
+| AWS SDK v3 | S3 file storage |
 | Jest 30 | Testing |
 | Swagger | REST API docs |
 | ESLint + Prettier | Code style |

@@ -9,6 +9,7 @@ import { AppService } from './app.service';
 import { AppResolver } from './app.resolver';
 import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './modules/users/users.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { ProductsModule } from './modules/products/products.module';
 import { ProductsLoader } from './modules/products/products.loader';
 import { OrdersModule } from './modules/orders/orders.module';
@@ -42,6 +43,7 @@ import { OrdersModule } from './modules/orders/orders.module';
     }),
     DatabaseModule,
     UsersModule,
+    AuthModule,
     ProductsModule,
     OrdersModule,
   ],

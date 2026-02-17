@@ -5,6 +5,7 @@ import { type Repository } from 'typeorm';
 import { User } from './user.entity';
 import { type CreateUserDto } from './dto/create-user.dto';
 import { type UpdateUserDto } from './dto/update-user.dto';
+import { type UserRole } from './enums/user-role.enum';
 
 @Injectable()
 export class UsersService {
@@ -59,5 +60,33 @@ export class UsersService {
     if (result.affected === 0) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    return this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.email = :email', { email })
+      .getOne();
+  }
+
+  async createAuthUser(data: {
+    firstName: string;
+    lastName: string;
+    age: number;
+    email: string;
+    password: string;
+    role?: UserRole;
+  }): Promise<User> {
+    const existedUser = await this.userRepository.findOne({
+      where: { email: data.email },
+    });
+
+    if (existedUser) {
+      throw new ConflictException(`User with email ${data.email} already exists`);
+    }
+
+    const user = this.userRepository.create(data);
+    return this.userRepository.save(user);
   }
 }
