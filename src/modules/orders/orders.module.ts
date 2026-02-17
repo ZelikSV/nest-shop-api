@@ -6,10 +6,12 @@ import { OrdersService } from './orders.service';
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
+import { ProductsModule } from '../products/products.module';
+import { OrdersResolver, OrderItemResolver } from './graphql/orders.resolver';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Order, OrderItem, Product])],
+  imports: [TypeOrmModule.forFeature([Order, OrderItem, Product]), ProductsModule],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, OrdersResolver, OrderItemResolver],
 })
 export class OrdersModule {}
