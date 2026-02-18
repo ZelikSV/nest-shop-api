@@ -15,6 +15,18 @@ async function bootstrap(): Promise<void> {
   const apiVersion = '1';
   const swaggerPath = 'api-docs';
 
+  const allowedOrigins = configService
+    .get<string>('CORS_ORIGINS', 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim());
+
+  app.enableCors({
+    origin: allowedOrigins,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
   app.setGlobalPrefix(globalPrefix);
