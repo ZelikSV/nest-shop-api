@@ -1,9 +1,11 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 
 import { UsersService } from './users.service';
 import { User } from './user.entity';
+import { FileRecord } from 'src/modules/files/file-record.entity';
 import { MOCK_USERS } from '../../common/mocks/users';
 
 const mockUsers: User[] = MOCK_USERS.map((u) => ({
@@ -22,6 +24,16 @@ describe('UsersService', () => {
     create: jest.fn(),
     save: jest.fn(),
     delete: jest.fn(),
+    update: jest.fn(),
+  };
+
+  const mockFileRecordRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockConfigService = {
+    get: jest.fn(),
+    getOrThrow: jest.fn(),
   };
 
   const mockedNonExistentId = 'b2c3d4e5-f6a7-8901-bcde-f12345678911';
@@ -33,6 +45,14 @@ describe('UsersService', () => {
         {
           provide: getRepositoryToken(User),
           useValue: mockUserRepository,
+        },
+        {
+          provide: getRepositoryToken(FileRecord),
+          useValue: mockFileRecordRepository,
+        },
+        {
+          provide: ConfigService,
+          useValue: mockConfigService,
         },
       ],
     }).compile();
@@ -52,12 +72,14 @@ describe('UsersService', () => {
   });
 
   describe('getUserById', () => {
-    it('should return a user by id', async () => {
+    it('should return a user with avatarUrl by id', async () => {
       const existingUser = mockUsers[0];
       mockUserRepository.findOne.mockResolvedValue(existingUser);
+      mockFileRecordRepository.findOne.mockResolvedValue(null);
+
       const result = await service.getUserById(existingUser.id);
 
-      expect(result).toEqual(existingUser);
+      expect(result).toEqual({ ...existingUser, avatarUrl: null });
       expect(mockUserRepository.findOne).toHaveBeenCalledWith({ where: { id: existingUser.id } });
     });
 
