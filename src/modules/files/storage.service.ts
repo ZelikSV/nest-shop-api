@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 @Injectable()
@@ -29,6 +29,15 @@ export class StorageService {
       Key: key,
       ContentType: contentType,
     });
+    return getSignedUrl(this.s3Client, command, { expiresIn });
+  }
+
+  async generatePresignedDownloadUrl(key: string, expiresIn = 604800): Promise<string> {
+    const cloudfrontUrl = this.configService.get<string>('CLOUDFRONT_BASE_URL');
+    if (cloudfrontUrl) {
+      return `${cloudfrontUrl}/${key}`;
+    }
+    const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     return getSignedUrl(this.s3Client, command, { expiresIn });
   }
 

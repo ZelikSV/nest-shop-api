@@ -8,12 +8,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type Repository, type QueryRunner, DataSource } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
 import { FileRecord } from '../files/file-record.entity';
+import { StorageService } from '../files/storage.service';
 import { type CreateOrderDto } from './dto/create-order.dto';
 import { type OrderItemDto } from './dto/order-item.dto';
 import { OrderStatus } from '../../common/types/orders';
@@ -32,7 +32,7 @@ export class OrdersService {
     @InjectRepository(FileRecord)
     private readonly fileRecordRepository: Repository<FileRecord>,
     private readonly dataSource: DataSource,
-    private readonly configService: ConfigService,
+    private readonly storageService: StorageService,
   ) {}
 
   async createOrder(dto: CreateOrderDto): Promise<Order> {
@@ -106,7 +106,7 @@ export class OrdersService {
         where: { id: order.invoiceFileId },
       });
       if (fileRecord) {
-        invoiceUrl = this.buildFileUrl(fileRecord.key);
+        invoiceUrl = await this.storageService.generatePresignedDownloadUrl(fileRecord.key);
       }
     }
 
@@ -115,16 +115,6 @@ export class OrdersService {
 
   async updateInvoiceFileId(orderId: string, fileId: string): Promise<void> {
     await this.orderRepository.update(orderId, { invoiceFileId: fileId });
-  }
-
-  private buildFileUrl(key: string): string {
-    const cloudfrontUrl = this.configService.get<string>('CLOUDFRONT_BASE_URL');
-    if (cloudfrontUrl) {
-      return `${cloudfrontUrl}/${key}`;
-    }
-    const region = this.configService.getOrThrow<string>('AWS_REGION');
-    const bucket = this.configService.getOrThrow<string>('S3_BUCKET_NAME');
-    return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
   }
 
   private async findExistingOrder(userId: string, idempotencyKey: string): Promise<Order | null> {

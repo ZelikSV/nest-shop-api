@@ -8,10 +8,15 @@ import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
 import { FileRecord } from '../files/file-record.entity';
 import { ProductsModule } from '../products/products.module';
+import { StorageModule } from '../files/storage.module';
 import { OrdersResolver, OrderItemResolver } from './graphql/orders.resolver';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Order, OrderItem, Product, FileRecord]), ProductsModule],
+  imports: [
+    TypeOrmModule.forFeature([Order, OrderItem, Product, FileRecord]),
+    ProductsModule,
+    StorageModule,
+  ],
   controllers: [OrdersController],
   providers: [OrdersService, OrdersResolver, OrderItemResolver],
   exports: [OrdersService],

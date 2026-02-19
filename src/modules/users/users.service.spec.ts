@@ -1,11 +1,11 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 
 import { UsersService } from './users.service';
 import { User } from './user.entity';
 import { FileRecord } from 'src/modules/files/file-record.entity';
+import { StorageService } from 'src/modules/files/storage.service';
 import { MOCK_USERS } from '../../common/mocks/users';
 
 const mockUsers: User[] = MOCK_USERS.map((u) => ({
@@ -31,9 +31,8 @@ describe('UsersService', () => {
     findOne: jest.fn(),
   };
 
-  const mockConfigService = {
-    get: jest.fn(),
-    getOrThrow: jest.fn(),
+  const mockStorageService = {
+    generatePresignedDownloadUrl: jest.fn().mockResolvedValue('https://presigned-url'),
   };
 
   const mockedNonExistentId = 'b2c3d4e5-f6a7-8901-bcde-f12345678911';
@@ -51,8 +50,8 @@ describe('UsersService', () => {
           useValue: mockFileRecordRepository,
         },
         {
-          provide: ConfigService,
-          useValue: mockConfigService,
+          provide: StorageService,
+          useValue: mockStorageService,
         },
       ],
     }).compile();

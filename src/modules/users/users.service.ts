@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 
 import { User } from './user.entity';
 import { type CreateUserDto } from './dto/create-user.dto';
 import { type UpdateUserDto } from './dto/update-user.dto';
 import { type UserRole } from './enums/user-role.enum';
 import { FileRecord } from 'src/modules/files/file-record.entity';
+import { StorageService } from 'src/modules/files/storage.service';
 
 export interface UserWithAvatar extends User {
   avatarUrl: string | null;
@@ -20,7 +20,7 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(FileRecord)
     private readonly fileRecordRepository: Repository<FileRecord>,
-    private readonly configService: ConfigService,
+    private readonly storageService: StorageService,
   ) {}
 
   async getUsers(): Promise<User[]> {
@@ -40,7 +40,7 @@ export class UsersService {
         where: { id: user.avatarFileId },
       });
       if (fileRecord) {
-        avatarUrl = this.buildFileUrl(fileRecord.key);
+        avatarUrl = await this.storageService.generatePresignedDownloadUrl(fileRecord.key);
       }
     }
 
@@ -111,15 +111,5 @@ export class UsersService {
 
   async updateAvatarFileId(userId: string, fileId: string): Promise<void> {
     await this.userRepository.update(userId, { avatarFileId: fileId });
-  }
-
-  private buildFileUrl(key: string): string {
-    const cloudfrontUrl = this.configService.get<string>('CLOUDFRONT_BASE_URL');
-    if (cloudfrontUrl) {
-      return `${cloudfrontUrl}/${key}`;
-    }
-    const region = this.configService.getOrThrow<string>('AWS_REGION');
-    const bucket = this.configService.getOrThrow<string>('S3_BUCKET_NAME');
-    return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
   }
 }
