@@ -41,6 +41,9 @@ export class Order {
   @Column({ type: 'varchar', length: 255 })
   idempotencyKey: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  invoiceFileId: string | null;
+
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];
 

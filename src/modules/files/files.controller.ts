@@ -32,13 +32,14 @@ export class FilesController {
     @Body() dto: PresignDto,
     @Req() req: AuthenticatedRequest,
   ): Promise<PresignResponseDto> {
-    return this.filesService.presign(req.user.id, dto.entityId, dto.contentType);
+    return this.filesService.presign(req.user.id, dto.entityId, dto.entityType, dto.contentType);
   }
 
   @Post('complete')
   @ApiOperation({
     summary: 'Mark file upload as complete',
-    description: 'Transitions FileRecord from pending → ready and attaches it to the User entity.',
+    description:
+      'Transitions FileRecord from pending → ready and attaches it to the target entity (User avatar or Order invoice).',
   })
   @ApiResponse({ status: 201, type: FileRecord })
   @ApiResponse({ status: 400, description: 'Bad Request' })

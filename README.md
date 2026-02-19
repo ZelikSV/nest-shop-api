@@ -869,6 +869,45 @@ URL is computed at read-time (not stored in DB), so changing CloudFront config t
 
 ---
 
+### Invoice flow for Orders (bonus)
+
+Same presign → upload → complete flow, but `entityType: "order"`:
+
+```
+1. POST /api/v1/files/presign
+   Body: { entityId: "<orderId>", entityType: "order", contentType: "application/pdf" }
+   → Validates JWT, checks order.userId === req.user.id (ForbiddenException if not)
+   → Generates key: orders/{orderId}/invoices/{uuid}.pdf
+   → Creates FileRecord (status: pending)
+   → Returns { fileId, key, uploadUrl, contentType }
+
+2. PUT <uploadUrl>   (direct to S3)
+   Header: Content-Type: application/pdf
+
+3. POST /api/v1/files/complete
+   Body: { fileId: "<fileId>" }
+   → Validates ownership (fileRecord.ownerId === req.user.id)
+   → Transitions pending → ready
+   → Updates Order.invoiceFileId = fileRecord.id
+
+4. GET /api/v1/orders/:id   (requires Bearer token)
+   → Returns order + invoiceUrl (only if requester is the order owner or ADMIN role)
+   → ForbiddenException for everyone else
+
+5. GET /api/v1/orders/:id/public   (no auth)
+   → Returns basic order data without invoiceUrl
+```
+
+Access control for invoices:
+
+| Action | Who can do it |
+|--------|--------------|
+| `presign` for order | Only the order owner (order.userId === req.user.id) |
+| `complete` for order | Only the user who called presign (fileRecord.ownerId) |
+| View `invoiceUrl` | Order owner or ADMIN |
+
+---
+
 ### FileRecord entity
 
 | Field | Type | Description |

@@ -8,13 +8,19 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type Repository, type QueryRunner, DataSource } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
+import { FileRecord } from '../files/file-record.entity';
 import { type CreateOrderDto } from './dto/create-order.dto';
 import { type OrderItemDto } from './dto/order-item.dto';
 import { OrderStatus } from '../../common/types/orders';
+
+export interface OrderWithInvoice extends Order {
+  invoiceUrl: string | null;
+}
 
 @Injectable()
 export class OrdersService {
@@ -23,7 +29,10 @@ export class OrdersService {
   constructor(
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
+    @InjectRepository(FileRecord)
+    private readonly fileRecordRepository: Repository<FileRecord>,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {}
 
   async createOrder(dto: CreateOrderDto): Promise<Order> {
@@ -81,7 +90,7 @@ export class OrdersService {
     return qb.getMany();
   }
 
-  async findOrderById(id: string): Promise<Order> {
+  async findOrderById(id: string): Promise<OrderWithInvoice> {
     const order = await this.orderRepository.findOne({
       where: { id },
       relations: ['items', 'items.product'],
@@ -91,7 +100,31 @@ export class OrdersService {
       throw new NotFoundException(`Order with id ${id} not found`);
     }
 
-    return order;
+    let invoiceUrl: string | null = null;
+    if (order.invoiceFileId) {
+      const fileRecord = await this.fileRecordRepository.findOne({
+        where: { id: order.invoiceFileId },
+      });
+      if (fileRecord) {
+        invoiceUrl = this.buildFileUrl(fileRecord.key);
+      }
+    }
+
+    return { ...order, invoiceUrl };
+  }
+
+  async updateInvoiceFileId(orderId: string, fileId: string): Promise<void> {
+    await this.orderRepository.update(orderId, { invoiceFileId: fileId });
+  }
+
+  private buildFileUrl(key: string): string {
+    const cloudfrontUrl = this.configService.get<string>('CLOUDFRONT_BASE_URL');
+    if (cloudfrontUrl) {
+      return `${cloudfrontUrl}/${key}`;
+    }
+    const region = this.configService.getOrThrow<string>('AWS_REGION');
+    const bucket = this.configService.getOrThrow<string>('S3_BUCKET_NAME');
+    return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
   }
 
   private async findExistingOrder(userId: string, idempotencyKey: string): Promise<Order | null> {
