@@ -1,8 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsIn, IsUUID } from 'class-validator';
+
 import { EntityType } from '../enums/entity-type.enum';
 
-const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
+const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 export type AllowedContentType = (typeof ALLOWED_CONTENT_TYPES)[number];
 
 export class PresignDto {

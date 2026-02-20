@@ -5,8 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { FileStatus } from './enums/file-status.enum';
-import { FileVisibility } from './enums/file-visibility.enum';
+import { FileStatus, FileVisibility } from './enums/file.enums';
 
 @Entity('file_records')
 export class FileRecord {

@@ -8,14 +8,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 
+import { UsersService } from 'src/modules/users/users.service';
+import { OrdersService } from 'src/modules/orders/orders.service';
+
 import { FileRecord } from './file-record.entity';
-import { FileStatus } from './enums/file-status.enum';
-import { FileVisibility } from './enums/file-visibility.enum';
 import { EntityType } from './enums/entity-type.enum';
 import { StorageService } from './storage.service';
 import { PresignResponseDto } from './dto/presign-response.dto';
-import { UsersService } from 'src/modules/users/users.service';
-import { OrdersService } from 'src/modules/orders/orders.service';
+import { FileStatus, FileVisibility } from './enums/file.enums';
 
 @Injectable()
 export class FilesService {
@@ -93,15 +93,18 @@ export class FilesService {
       if (ownerId !== entityId) {
         throw new ForbiddenException('You can only upload files for your own entity');
       }
+
       await this.usersService.getUserById(entityId);
+
       return `users/${entityId}/avatars/${randomUUID()}.${ext}`;
     }
 
-    // EntityType.ORDER
     const order = await this.ordersService.findOrderById(entityId);
+
     if (order.userId !== ownerId) {
       throw new ForbiddenException('You can only upload invoices for your own orders');
     }
+
     return `orders/${entityId}/invoices/${randomUUID()}.${ext}`;
   }
 
@@ -111,6 +114,7 @@ export class FilesService {
     }
 
     const key = fileRecord.key;
+
     if (key.startsWith('users/')) {
       await this.usersService.updateAvatarFileId(fileRecord.entityId, fileRecord.id);
     } else if (key.startsWith('orders/')) {
