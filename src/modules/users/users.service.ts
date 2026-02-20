@@ -6,26 +6,45 @@ import { User } from './user.entity';
 import { type CreateUserDto } from './dto/create-user.dto';
 import { type UpdateUserDto } from './dto/update-user.dto';
 import { type UserRole } from './enums/user-role.enum';
+import { FileRecord } from 'src/modules/files/file-record.entity';
+import { StorageService } from 'src/modules/files/storage.service';
+
+export interface UserWithAvatar extends User {
+  avatarUrl: string | null;
+}
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(FileRecord)
+    private readonly fileRecordRepository: Repository<FileRecord>,
+    private readonly storageService: StorageService,
   ) {}
 
   async getUsers(): Promise<User[]> {
     return this.userRepository.find();
   }
 
-  async getUserById(id: string): Promise<User> {
+  async getUserById(id: string): Promise<UserWithAvatar> {
     const user = await this.userRepository.findOne({ where: { id } });
 
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    return user;
+    let avatarUrl: string | null = null;
+    if (user.avatarFileId) {
+      const fileRecord = await this.fileRecordRepository.findOne({
+        where: { id: user.avatarFileId },
+      });
+      if (fileRecord) {
+        avatarUrl = await this.storageService.generatePresignedDownloadUrl(fileRecord.key);
+      }
+    }
+
+    return { ...user, avatarUrl };
   }
 
   async createNewUser(newUser: CreateUserDto): Promise<User> {
@@ -88,5 +107,9 @@ export class UsersService {
 
     const user = this.userRepository.create(data);
     return this.userRepository.save(user);
+  }
+
+  async updateAvatarFileId(userId: string, fileId: string): Promise<void> {
+    await this.userRepository.update(userId, { avatarFileId: fileId });
   }
 }

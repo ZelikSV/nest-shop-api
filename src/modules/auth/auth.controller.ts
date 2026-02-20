@@ -5,10 +5,7 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import {
-  type AuthenticatedRequest,
-  type JwtUser,
-} from 'src/common/types/authenticated-request.interface';
+import { type AuthenticatedRequest } from 'src/common/types/authenticated-request.interface';
 
 @ApiTags('Auth')
 @Controller({ path: 'auth', version: '1' })
@@ -37,7 +34,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user profile' })
   @ApiResponse({ status: 200, description: 'Returns current user info' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getProfile(@Req() req: AuthenticatedRequest): JwtUser {
-    return req.user;
+  getProfile(@Req() req: AuthenticatedRequest) {
+    return this.authService.getProfile(req.user.id);
   }
 }

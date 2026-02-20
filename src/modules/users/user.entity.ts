@@ -32,6 +32,9 @@ export class User {
   @Column({ type: 'enum', enum: UserRole, default: UserRole.CUSTOMER })
   role: UserRole;
 
+  @Column({ type: 'uuid', nullable: true })
+  avatarFileId: string | null;
+
   @OneToMany(() => Order, (order) => order.user)
   orders: Order[];
 
