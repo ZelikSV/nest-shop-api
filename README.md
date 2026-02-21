@@ -4,6 +4,142 @@ E-commerce REST API + GraphQL built with NestJS.
 
 **Live Demo:** [https://nest-shop-api-0shf.onrender.com/api-docs](https://nest-shop-api-0shf.onrender.com/api-docs)
 
+---
+
+## Docker
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | Multi-stage build: `deps` → `build` → `prod-deps` → `dev` / `prod` / `prod-distroless` |
+| `compose.yml` | Prod-like local stack: `api` + `postgres` + one-off `migrate` / `seed` |
+| `compose.dev.yml` | Dev override: bind-mount, hot reload, exposed postgres port |
+| `.dockerignore` | Excludes `node_modules`, `dist`, `.env*`, tests, dev tooling |
+| `.env.example` | Template for required environment variables (no secrets) |
+
+### Quick Start
+
+#### 1. Prepare environment
+
+```bash
+cp .env.example .env
+# Edit .env — set DB_PASSWORD, JWT_SECRET, AWS credentials, etc.
+```
+
+#### 2. Dev (hot reload)
+
+```bash
+docker compose -f compose.yml -f compose.dev.yml up --build
+```
+
+- API: http://localhost:8080
+- Swagger: http://localhost:8080/api-docs
+- GraphQL: http://localhost:8080/graphql
+- Postgres exposed on `localhost:5432` (for local DB clients)
+- Any file change is picked up immediately — no image rebuild needed
+
+#### 3. Prod-like
+
+```bash
+docker compose up --build
+```
+
+- API: http://localhost:8080
+- Postgres is **not** exposed to the host (internal network only)
+
+#### 4. Migrations & seed (one-off jobs)
+
+Run before or after starting the stack — migrations connect directly to the postgres container:
+
+```bash
+# Apply all pending TypeORM migrations
+docker compose run --rm migrate
+
+# Populate the database with mock users and products
+docker compose run --rm seed
+```
+
+> `migrate` and `seed` services use the `tools` profile so they are **never** started by `docker compose up` — they must be triggered explicitly.
+
+#### 5. Build a specific Dockerfile target
+
+```bash
+# Production image
+docker build --target prod -t nest-shop-api:prod .
+
+# Distroless image
+docker build --target prod-distroless -t nest-shop-api:distroless .
+```
+
+---
+
+### Image optimisation
+
+After building all targets, compare sizes:
+
+```bash
+docker image ls nest-shop-api
+```
+
+Example output (actual numbers will differ by environment):
+
+```
+REPOSITORY       TAG           IMAGE ID       SIZE
+nest-shop-api    dev           xxxxxxxxxxxx   ~700 MB   # all deps + dev tools
+nest-shop-api    prod          xxxxxxxxxxxx   ~250 MB   # prod deps + dist only
+nest-shop-api    distroless    xxxxxxxxxxxx   ~180 MB   # no shell, no pkg manager
+```
+
+View layer breakdown of the distroless image:
+
+```bash
+docker history nest-shop-api:distroless
+```
+
+**Why `prod-distroless` is smaller and safer:**
+
+- Based on `gcr.io/distroless/nodejs24-debian12` — contains only the Node.js runtime and its minimal OS dependencies (no `bash`, `sh`, `apt`, `curl`, etc.)
+- Attack surface is drastically reduced: an attacker who gains code execution cannot spawn a shell or install tools
+- No package manager means no accidental or malicious package installs at runtime
+- `prod` already removes `src/`, `devDependencies`, and all dev tooling; `prod-distroless` additionally removes the entire OS userland
+
+---
+
+### Non-root verification
+
+#### `prod` stage
+
+The `Dockerfile` creates a dedicated system user `nestjs` and switches to it before the `CMD`:
+
+```dockerfile
+RUN groupadd --system nestjs \
+ && useradd  --system --gid nestjs --no-create-home nestjs
+...
+USER nestjs
+```
+
+Verify at runtime:
+
+```bash
+docker run --rm nest-shop-api:prod id
+# uid=999(nestjs) gid=999(nestjs) groups=999(nestjs)
+```
+
+#### `prod-distroless` stage
+
+The `:nonroot` tag of `gcr.io/distroless/nodejs24-debian12` sets `USER 65532` (the `nonroot` user) in the base image — no explicit `USER` instruction is needed.
+
+Distroless images have no shell so `id` cannot be run inside the container. Non-root is guaranteed by the base image itself. Confirm with:
+
+```bash
+docker inspect nest-shop-api:distroless \
+  --format '{{ (index .Config.User) }}'
+# 65532
+```
+
+---
+
 ## API Endpoints
 
 ### REST API

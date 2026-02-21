@@ -29,7 +29,8 @@ import { FilesModule } from './modules/files/files.module';
       driver: ApolloDriver,
       imports: [ProductsModule],
       useFactory: (productsLoader: ProductsLoader) => ({
-        autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+        autoSchemaFile:
+          process.env.NODE_ENV === 'production' ? true : join(process.cwd(), 'src/schema.gql'),
         sortSchema: true,
         playground: true,
         introspection: true,

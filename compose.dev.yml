@@ -1,0 +1,33 @@
+# Dev override — merge with compose.yml:
+#   docker compose -f compose.yml -f compose.dev.yml up --build
+#
+# Bind-mount pattern:
+#   - `.:/app`               syncs host source into the container (hot reload)
+#   - `/app/node_modules`    anonymous volume that shadows the bind-mount so the
+#                            container's installed node_modules are never overwritten
+#                            by the (possibly absent) host directory
+
+services:
+
+  # Expose postgres to the host so local DB clients (TablePlus, pgAdmin…) can connect
+  postgres:
+    ports:
+      - "${DB_PORT:-5432}:5432"
+
+  api:
+    build:
+      context: .
+      target: dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: development
+      DB_SSL:   "false"
+    ports:
+      - "9229:9229"   # Node.js inspector (--debug / --inspect)
+    volumes:
+      - .:/app                # bind-mount: any file change is reflected immediately
+      - /app/node_modules     # anonymous volume: preserves container's node_modules
+    command: ["yarn", "start:dev"]
+    restart: unless-stopped
