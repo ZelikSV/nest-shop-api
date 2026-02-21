@@ -45,8 +45,9 @@ services:
     environment:
       DB_HOST:    postgres
       NODE_ENV:   production
+      DB_SSL:     "false"
     ports:
-      - "${API_PORT:-8080}:3000"
+      - "${API_PORT:-8080}:${PORT:-3000}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,6 +73,7 @@ services:
         required: false
     environment:
       DB_HOST: postgres
+      DB_SSL:  "false"
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,6 +98,7 @@ services:
         required: false
     environment:
       DB_HOST: postgres
+      DB_SSL:  "false"
     depends_on:
       postgres:
         condition: service_healthy

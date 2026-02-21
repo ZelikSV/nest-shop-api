@@ -23,8 +23,8 @@ services:
         required: false
     environment:
       NODE_ENV: development
+      DB_SSL:   "false"
     ports:
-      - "${API_PORT:-8080}:3000"
       - "9229:9229"   # Node.js inspector (--debug / --inspect)
     volumes:
       - .:/app                # bind-mount: any file change is reflected immediately
