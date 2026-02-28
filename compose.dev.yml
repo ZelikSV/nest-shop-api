@@ -14,6 +14,12 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
 
+  # Expose RabbitMQ to the host for local development
+  rabbitmq:
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"         # AMQP
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"  # Management UI → http://localhost:15672
+
   api:
     build:
       context: .
@@ -22,8 +28,9 @@ services:
       - path: .env
         required: false
     environment:
-      NODE_ENV: development
-      DB_SSL:   "false"
+      NODE_ENV:     development
+      DB_SSL:       "false"
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
     ports:
       - "9229:9229"   # Node.js inspector (--debug / --inspect)
     volumes:

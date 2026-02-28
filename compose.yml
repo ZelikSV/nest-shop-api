@@ -1,7 +1,7 @@
 name: nest-shop-api
 
 networks:
-  # postgres lives only here — unreachable from the host machine
+  # postgres and rabbitmq live only here — unreachable from the host machine
   internal:
     driver: bridge
     internal: true
@@ -11,6 +11,7 @@ networks:
 
 volumes:
   pgdata:
+  rabbitmqdata:
 
 services:
 
@@ -34,6 +35,25 @@ services:
       retries: 5
       start_period: 10s
 
+  # ─── RabbitMQ ───────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    networks:
+      - internal
+    # No `ports:` — rabbitmq is NOT exposed to the host
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
   # ─── NestJS API ─────────────────────────────────────────────────────────────
   api:
     build:
@@ -43,13 +63,16 @@ services:
       - path: .env
         required: false
     environment:
-      DB_HOST:    postgres
-      NODE_ENV:   production
-      DB_SSL:     "false"
+      DB_HOST:       postgres
+      NODE_ENV:      production
+      DB_SSL:        "false"
+      RABBITMQ_URL:  amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
     ports:
       - "${API_PORT:-8080}:${PORT:-3000}"
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - internal
