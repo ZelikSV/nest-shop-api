@@ -44,6 +44,9 @@ export class Order {
   @Column({ type: 'uuid', nullable: true })
   invoiceFileId: string | null;
 
+  @Column({ type: 'timestamp', nullable: true })
+  processedAt: Date | null;
+
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];
 

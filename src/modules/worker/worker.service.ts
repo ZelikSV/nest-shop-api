@@ -69,7 +69,7 @@ export class WorkerService implements OnModuleInit {
           throw err;
         }
 
-        await em.update(Order, orderId, { status: OrderStatus.PROCESSED });
+        await em.update(Order, orderId, { status: OrderStatus.PROCESSED, processedAt: new Date() });
       });
 
       channel.ack(msg);
