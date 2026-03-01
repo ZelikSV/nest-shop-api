@@ -8,6 +8,8 @@ import { QUEUES, type OrderMessage } from '../rabbitmq/rabbitmq.constants';
 import { Order } from '../orders/order.entity';
 import { OrderStatus } from '../../common/types/orders';
 
+const MAX_ATTEMPTS = 3; // total attempts including the first one
+
 @Injectable()
 export class WorkerService implements OnModuleInit {
   private readonly logger = new Logger(WorkerService.name);
@@ -60,11 +62,34 @@ export class WorkerService implements OnModuleInit {
       this.logger.log(`Success messageId=${messageId} orderId=${orderId}`);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      this.logger.error(
-        `Failed messageId=${messageId} orderId=${orderId} attempt=${attempt} reason=${reason}`,
-      );
+      const nextAttempt = attempt + 1;
 
-      channel.nack(msg, false, false);
+      if (nextAttempt < MAX_ATTEMPTS) {
+        const delayMs = 1000 * nextAttempt;
+        this.logger.warn(
+          `Retry messageId=${messageId} orderId=${orderId} attempt=${attempt} → ${nextAttempt} in ${delayMs}ms reason=${reason}`,
+        );
+
+        setTimeout(() => {
+          this.rabbitmqService
+            .publish(QUEUES.ORDERS_PROCESS, { ...payload, attempt: nextAttempt })
+            .catch((e: unknown) =>
+              this.logger.error(
+                `Failed to republish messageId=${messageId}`,
+                e instanceof Error ? e.stack : String(e),
+              ),
+            );
+        }, delayMs);
+
+        channel.ack(msg);
+      } else {
+        this.logger.error(
+          `DLQ messageId=${messageId} orderId=${orderId} attempt=${attempt} reason=${reason}`,
+        );
+
+        await this.rabbitmqService.publish(QUEUES.ORDERS_DLQ, payload);
+        channel.ack(msg);
+      }
     }
   }
 }
