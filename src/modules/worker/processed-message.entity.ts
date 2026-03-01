@@ -2,13 +2,13 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 @Entity('processed_messages')
 export class ProcessedMessage {
-  @PrimaryColumn('uuid')
+  @PrimaryColumn({ name: 'message_id', type: 'uuid' })
   messageId: string;
 
-  @Column('uuid')
+  @Column({ name: 'order_id', type: 'uuid' })
   orderId: string;
 
-  @Column({ type: 'timestamp', default: () => 'now()' })
+  @Column({ name: 'processed_at', type: 'timestamp', default: () => 'now()' })
   processedAt: Date;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
