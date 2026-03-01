@@ -65,6 +65,7 @@ enum OrderStatus {
 
   """Order is pending confirmation"""
   PENDING
+  PROCESSED
 
   """Order has been shipped"""
   SHIPPED
