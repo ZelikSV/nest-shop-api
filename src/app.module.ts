@@ -14,6 +14,8 @@ import { ProductsModule } from './modules/products/products.module';
 import { ProductsLoader } from './modules/products/products.loader';
 import { OrdersModule } from './modules/orders/orders.module';
 import { FilesModule } from './modules/files/files.module';
+import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
+import { WorkerModule } from './modules/worker/worker.module';
 
 @Module({
   imports: [
@@ -44,11 +46,13 @@ import { FilesModule } from './modules/files/files.module';
       inject: [ProductsLoader],
     }),
     DatabaseModule,
+    RabbitmqModule,
     UsersModule,
     AuthModule,
     ProductsModule,
     OrdersModule,
     FilesModule,
+    WorkerModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],
