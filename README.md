@@ -13,8 +13,8 @@ E-commerce REST API + GraphQL built with NestJS.
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Multi-stage build: `deps` → `build` → `prod-deps` → `dev` / `prod` / `prod-distroless` |
-| `compose.yml` | Prod-like local stack: `api` + `postgres` + one-off `migrate` / `seed` |
-| `compose.dev.yml` | Dev override: bind-mount, hot reload, exposed postgres port |
+| `compose.yml` | Prod-like local stack: `api` + `postgres` + `rabbitmq` + one-off `migrate` / `seed` |
+| `compose.dev.yml` | Dev override: bind-mount, hot reload, exposed postgres and rabbitmq ports |
 | `.dockerignore` | Excludes `node_modules`, `dist`, `.env*`, tests, dev tooling |
 | `.env.example` | Template for required environment variables (no secrets) |
 
@@ -37,6 +37,7 @@ docker compose -f compose.yml -f compose.dev.yml up --build
 - Swagger: http://localhost:8080/api-docs
 - GraphQL: http://localhost:8080/graphql
 - Postgres exposed on `localhost:5432` (for local DB clients)
+- RabbitMQ Management UI: http://localhost:15672 (guest / guest)
 - Any file change is picked up immediately — no image rebuild needed
 
 #### 3. Prod-like
@@ -311,8 +312,10 @@ src/
     │   └── enums/
     │       └── user-role.enum.ts  # UserRole: ADMIN | CUSTOMER
     ├── products/        # Products CRUD
-    ├── orders/          # Orders (transactional creation)
-    └── files/           # S3 presigned upload (FilesModule)
+    ├── orders/          # Orders (transactional creation + MQ publish)
+    ├── files/           # S3 presigned upload (FilesModule)
+    ├── rabbitmq/        # RabbitMQ connection, topology, publish()
+    └── worker/          # Consumer: manual ack, retry, DLQ, idempotency
         ├── dto/
         ├── enums/       # FileStatus (pending/ready), FileVisibility (private/public)
         ├── file-record.entity.ts
@@ -347,9 +350,10 @@ Request -> Controller -> Service -> Repository -> PostgreSQL
 |-------|-------------|
 | `users` | User accounts (email unique, password hash, role: admin/customer, avatarFileId) |
 | `products` | Product catalog with stock & versioning |
-| `orders` | Orders with idempotency key & status |
+| `orders` | Orders with idempotency key & status (pending → processed) |
 | `order_items` | Order line items (snapshot price) |
 | `file_records` | File metadata: key, contentType, size, status (pending/ready), visibility |
+| `processed_messages` | RabbitMQ idempotency log — one row per processed `messageId` (unique PK) |
 
 ### Environment Config
 
@@ -372,6 +376,7 @@ The app loads env files in this order (first found wins):
 | `DB_*` | PostgreSQL connection |
 | `JWT_SECRET` | Secret key for signing JWT tokens |
 | `JWT_EXPIRES_IN` | Token TTL, e.g. `3600s` or `7d` |
+| `RABBITMQ_URL` | RabbitMQ connection URL, e.g. `amqp://guest:guest@localhost:5672` |
 | `AWS_REGION` | S3 bucket region |
 | `AWS_ACCESS_KEY_ID` | AWS credentials |
 | `AWS_SECRET_ACCESS_KEY` | AWS credentials |
@@ -1056,6 +1061,171 @@ Access control for invoices:
 | `size` | int | File size in bytes (nullable, filled by client optionally) |
 | `status` | enum | `pending` → `ready` |
 | `visibility` | enum | `private` / `public` |
+
+---
+
+## Homework 12 — RabbitMQ: Async Order Processing
+
+### Overview
+
+```
+POST /orders
+    │
+    ├─ Save order to DB (status: PENDING)
+    └─ Publish to orders.process ──► Worker
+                                        │
+                                        ├─ success  → UPDATE status=PROCESSED + ack
+                                        ├─ failure  → retry (republish, delay) + ack
+                                        └─ max attempts → orders.dlq + ack
+```
+
+### RabbitMQ Topology
+
+No custom exchange — default exchange, queue name = routing key.
+
+| Queue | Durable | Purpose |
+|-------|---------|---------|
+| `orders.process` | ✅ | Main work queue. Producer writes here, worker reads with `prefetch(1)` |
+| `orders.dlq` | ✅ | Dead Letter Queue. Receives messages that exhausted all retry attempts |
+
+Topology is declared in `RabbitmqService.onModuleInit()` on every connect:
+
+```typescript
+await channel.assertQueue('orders.process', { durable: true });
+await channel.assertQueue('orders.dlq',     { durable: true });
+```
+
+### Retry Mechanism (Variant A — Republish + Ack)
+
+`MAX_ATTEMPTS = 3` (total deliveries including first).
+
+| Delivery | attempt field | On failure |
+|----------|--------------|------------|
+| 1st | `0` | republish with `attempt=1`, delay **1 s**, ack original |
+| 2nd | `1` | republish with `attempt=2`, delay **2 s**, ack original |
+| 3rd | `2` | publish to `orders.dlq`, ack original |
+
+The original message is always **acked** — no requeue, no nack.
+Delay is implemented with `setTimeout` so the prefetch slot is freed immediately.
+
+### Message Format
+
+```json
+{
+  "messageId": "uuid-v4",
+  "orderId":   "uuid-v4",
+  "createdAt": "2026-03-01T10:00:00.000Z",
+  "attempt":   0,
+  "producer":  "orders-api",
+  "eventName": "order.created"
+}
+```
+
+### Idempotency
+
+Worker uses `processed_messages` table with `message_id` as primary key.
+
+Every message handling runs inside a single transaction:
+
+```
+BEGIN
+  INSERT INTO processed_messages(message_id, order_id, ...)
+    → unique violation (23505)?  → ROLLBACK, ack, skip  ✅
+  UPDATE orders SET status = 'processed'
+COMMIT
+ack
+```
+
+Works correctly with parallel workers — the unique constraint is the guard.
+
+### How to Run
+
+```bash
+# 1. Start the stack (Postgres + RabbitMQ + API)
+docker compose -f compose.yml -f compose.dev.yml up --build
+
+# 2. Apply migrations (includes PROCESSED status + processed_messages table)
+docker compose run --rm migrate
+
+# 3. (Optional) Seed test data
+docker compose run --rm seed
+```
+
+RabbitMQ Management UI → http://localhost:15672 (guest / guest)
+
+### Demo Scenarios
+
+#### 1. Happy Path
+
+```bash
+# Create an order
+curl -s -X POST http://localhost:8080/api/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "<userId>",
+    "idempotencyKey": "test-1",
+    "items": [{ "productId": "<productId>", "quantity": 1 }]
+  }'
+
+# Poll order status — should change to PROCESSED within seconds
+curl -s http://localhost:8080/api/v1/orders/<orderId>
+```
+
+Expected logs:
+```
+[WorkerService] Received messageId=<uuid> orderId=<uuid> attempt=0
+[WorkerService] Success  messageId=<uuid> orderId=<uuid>
+```
+
+#### 2. Retry
+
+Temporarily force a failure: in `WorkerService.handleMessage`, throw an error after parsing the payload. Restart the app and create an order.
+
+Expected logs:
+```
+[WorkerService] Received messageId=<uuid> orderId=<uuid> attempt=0
+[WorkerService] Retry    messageId=<uuid> orderId=<uuid> attempt=0 → 1 in 1000ms reason=...
+[WorkerService] Received messageId=<uuid> orderId=<uuid> attempt=1
+[WorkerService] Retry    messageId=<uuid> orderId=<uuid> attempt=1 → 2 in 2000ms reason=...
+```
+
+#### 3. DLQ
+
+Continue from scenario 2 — after 3 failed attempts the message lands in `orders.dlq`.
+
+Verify in Management UI:
+- **Queues** tab → `orders.dlq` → Ready > 0
+- **Get Messages** → inspect payload (`attempt: 2`)
+
+Expected logs:
+```
+[WorkerService] DLQ messageId=<uuid> orderId=<uuid> attempt=2 reason=...
+```
+
+#### 4. Idempotency
+
+Publish the same `messageId` twice via the Management UI:
+
+1. Queues → `orders.process` → **Publish Message**
+2. Paste the same JSON payload with an identical `messageId`
+3. Publish twice
+
+Expected logs on second delivery:
+```
+[WorkerService] Duplicate messageId=<uuid> orderId=<uuid> — skipped
+```
+
+Check `processed_messages` table — exactly one row for that `messageId`.
+
+### Management UI Cheat Sheet
+
+| Location | What to look at |
+|----------|----------------|
+| Overview | Message rates, connection count |
+| Queues → `orders.process` | Consumer count (should be 1), message backlog |
+| Queues → `orders.dlq` | Messages that failed all retries |
+| Queues → Get Messages | Inspect raw payload and headers |
+| Connections | Verify `nest-shop-api` connection is present |
 
 ---
 
