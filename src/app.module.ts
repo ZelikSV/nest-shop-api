@@ -15,6 +15,7 @@ import { ProductsLoader } from './modules/products/products.loader';
 import { OrdersModule } from './modules/orders/orders.module';
 import { FilesModule } from './modules/files/files.module';
 import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
+import { WorkerModule } from './modules/worker/worker.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
     ProductsModule,
     OrdersModule,
     FilesModule,
+    WorkerModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],
