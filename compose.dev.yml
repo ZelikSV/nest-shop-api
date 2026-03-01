@@ -19,6 +19,9 @@ services:
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"         # AMQP
       - "${RABBITMQ_MGMT_PORT:-15672}:15672"  # Management UI → http://localhost:15672
+    networks:
+      - internal
+      - public
 
   api:
     build:
