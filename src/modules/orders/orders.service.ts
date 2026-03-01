@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type Repository, type QueryRunner, DataSource } from 'typeorm';
+import { randomUUID } from 'crypto';
 
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
@@ -17,6 +18,8 @@ import { StorageService } from '../files/storage.service';
 import { type CreateOrderDto } from './dto/create-order.dto';
 import { type OrderItemDto } from './dto/order-item.dto';
 import { OrderStatus } from '../../common/types/orders';
+import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
+import { QUEUES, type OrderMessage } from '../rabbitmq/rabbitmq.constants';
 
 export interface OrderWithInvoice extends Order {
   invoiceUrl: string | null;
@@ -33,6 +36,7 @@ export class OrdersService {
     private readonly fileRecordRepository: Repository<FileRecord>,
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
+    private readonly rabbitmqService: RabbitmqService,
   ) {}
 
   async createOrder(dto: CreateOrderDto): Promise<Order> {
@@ -52,6 +56,7 @@ export class OrdersService {
       const savedOrder = await this.executeOrderTransaction(queryRunner, dto);
       await queryRunner.commitTransaction();
 
+      await this.publishOrderCreated(savedOrder.id);
       this.logger.log(`Order ${savedOrder.id} created successfully`);
       return savedOrder;
     } catch (error) {
@@ -200,6 +205,27 @@ export class OrdersService {
           `Insufficient stock for "${product.name}": requested ${item.quantity}, available ${product.stock}`,
         );
       }
+    }
+  }
+
+  private async publishOrderCreated(orderId: string): Promise<void> {
+    const message: OrderMessage = {
+      messageId: randomUUID(),
+      orderId,
+      createdAt: new Date().toISOString(),
+      attempt: 0,
+      producer: 'orders-api',
+      eventName: 'order.created',
+    };
+
+    try {
+      await this.rabbitmqService.publish(QUEUES.ORDERS_PROCESS, message);
+      this.logger.log(`Published order.created messageId=${message.messageId} orderId=${orderId}`);
+    } catch (err) {
+      this.logger.error(
+        `Failed to publish order.created for orderId=${orderId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
     }
   }
 
