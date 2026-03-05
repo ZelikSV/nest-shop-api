@@ -74,6 +74,36 @@ docker build --target prod-distroless -t nest-shop-api:distroless .
 
 ---
 
+### Troubleshooting (dev mode)
+
+#### API container restarts once on first boot (`RestartCount: 1`)
+
+On a fresh clone the TypeScript watcher needs to do an initial compilation before the app is reachable. If Docker restarts the container once and then the app starts normally, it means the first compilation attempt exited before the server was up.
+
+**Fixed in** `nest-cli.json` (`tsConfigPath: tsconfig.build.json`) — forces `nest start --watch` to use the same tsconfig as `nest build`, excluding `test/` and `**/*.spec.ts` from the compilation scope.
+
+To verify the container is healthy after startup:
+
+```bash
+docker compose -f compose.yml -f compose.dev.yml ps
+# api service should show "(healthy)" after ~60 s
+```
+
+#### App started but watch mode doesn't pick up my changes
+
+The bind-mount is `.:/app` and the anonymous volume is `/app/node_modules`. If you add a package on the host without rebuilding the image, the container's `node_modules` won't have it:
+
+```bash
+# Rebuild the dev image to reinstall node_modules inside the container
+docker compose -f compose.yml -f compose.dev.yml up --build
+```
+
+#### TypeScript errors appear in the logs but prod builds fine
+
+`tsconfig.build.json` excludes test files; `tsconfig.json` does not. If you see TS errors only in watch mode, check whether the errors are in `*.spec.ts` or `test/` files — they will not affect the production build.
+
+---
+
 ### Image optimisation
 
 After building all targets, compare sizes:
