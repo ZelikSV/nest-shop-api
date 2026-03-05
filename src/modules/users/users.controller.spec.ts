@@ -9,6 +9,7 @@ import { MOCK_USERS } from '../../common/mocks/users';
 const mockUsers: User[] = MOCK_USERS.map((u) => ({
   ...u,
   orders: [],
+  avatarFileId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }));

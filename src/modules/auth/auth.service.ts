@@ -54,4 +54,8 @@ export class AuthService {
 
     return { accessToken };
   }
+
+  async getProfile(userId: string) {
+    return this.usersService.getUserById(userId);
+  }
 }

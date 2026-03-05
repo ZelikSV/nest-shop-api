@@ -13,6 +13,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ProductsModule } from './modules/products/products.module';
 import { ProductsLoader } from './modules/products/products.loader';
 import { OrdersModule } from './modules/orders/orders.module';
+import { FilesModule } from './modules/files/files.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { OrdersModule } from './modules/orders/orders.module';
     AuthModule,
     ProductsModule,
     OrdersModule,
+    FilesModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],

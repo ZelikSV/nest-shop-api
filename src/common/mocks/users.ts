@@ -13,6 +13,7 @@ export const MOCK_USERS: IUser[] = [
     email: 'john.doe@example.com',
     password: MOCK_PASSWORD_HASH,
     role: UserRole.CUSTOMER,
+    avatarFileId: null,
   },
   {
     id: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
@@ -22,6 +23,7 @@ export const MOCK_USERS: IUser[] = [
     email: 'jane.smith@example.com',
     password: MOCK_PASSWORD_HASH,
     role: UserRole.CUSTOMER,
+    avatarFileId: null,
   },
   {
     id: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
@@ -31,5 +33,6 @@ export const MOCK_USERS: IUser[] = [
     email: 'mike.johnson@example.com',
     password: MOCK_PASSWORD_HASH,
     role: UserRole.ADMIN,
+    avatarFileId: null,
   },
 ];
