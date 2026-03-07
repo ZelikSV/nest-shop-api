@@ -1,0 +1,44 @@
+# Dev override — merge with compose.yml:
+#   docker compose -f compose.yml -f compose.dev.yml up --build
+#
+# Bind-mount pattern:
+#   - `.:/app`               syncs host source into the container (hot reload)
+#   - `/app/node_modules`    anonymous volume that shadows the bind-mount so the
+#                            container's installed node_modules are never overwritten
+#                            by the (possibly absent) host directory
+
+services:
+
+  # Expose postgres to the host so local DB clients (TablePlus, pgAdmin…) can connect
+  postgres:
+    ports:
+      - "${DB_PORT:-5432}:5432"
+
+  api:
+    build:
+      context: .
+      target: dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: development
+      DB_SSL:   "false"
+    ports:
+      - "9229:9229"   # Node.js inspector (--debug / --inspect)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app                # bind-mount: any file change is reflected immediately
+      - /app/node_modules     # anonymous volume: preserves container's node_modules
+    command: ["yarn", "start:dev"]
+    restart: unless-stopped
+    healthcheck:
+      # node is always available in the dev image; curl/wget are not in slim variants
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # Long start_period covers initial TypeScript compilation in watch mode
+      start_period: 60s
