@@ -1,0 +1,123 @@
+name: Docker Smoke Tests
+
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── Prod-like stack ──────────────────────────────────────────────────────────
+  smoke-prod:
+    name: Prod stack smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare .env
+        run: |
+          cp .env.example .env
+          # Provide real-ish values so the app initialises without errors
+          echo "JWT_SECRET=ci-secret-$(openssl rand -hex 16)" >> .env
+          # Dummy AWS creds — S3Client initialises fine, fails only on actual calls
+          echo "AWS_ACCESS_KEY_ID=ci-dummy" >> .env
+          echo "AWS_SECRET_ACCESS_KEY=ci-dummy" >> .env
+
+      - name: Build and start prod stack
+        run: docker compose up --build -d
+
+      - name: Wait for API — up to 90 s
+        run: |
+          echo "Waiting for prod API..."
+          for i in $(seq 1 18); do
+            if curl -sf http://localhost:8080/api > /dev/null; then
+              echo "✓ API responded after $((i * 5))s"
+              exit 0
+            fi
+            echo "  attempt $i/18 — sleeping 5s"
+            sleep 5
+          done
+          echo "✗ API did not respond within 90s"
+          docker compose logs api
+          exit 1
+
+      - name: Smoke — GET /api returns 200
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api)
+          echo "HTTP status: $STATUS"
+          [ "$STATUS" = "200" ]
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # ─── Dev stack (hot reload) ───────────────────────────────────────────────────
+  smoke-dev:
+    name: Dev stack smoke test (hot reload)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare .env
+        run: |
+          cp .env.example .env
+          echo "JWT_SECRET=ci-secret-$(openssl rand -hex 16)" >> .env
+          echo "AWS_ACCESS_KEY_ID=ci-dummy" >> .env
+          echo "AWS_SECRET_ACCESS_KEY=ci-dummy" >> .env
+
+      - name: Build and start dev stack
+        run: docker compose -f compose.yml -f compose.dev.yml up --build -d
+
+      - name: Wait for API — up to 120 s (initial TS compilation)
+        run: |
+          echo "Waiting for dev API (includes initial TypeScript compilation)..."
+          for i in $(seq 1 24); do
+            if curl -sf http://localhost:8080/api > /dev/null; then
+              echo "✓ API responded after $((i * 5))s"
+              exit 0
+            fi
+            echo "  attempt $i/24 — sleeping 5s"
+            sleep 5
+          done
+          echo "✗ API did not respond within 120s"
+          docker compose -f compose.yml -f compose.dev.yml logs api
+          exit 1
+
+      - name: Smoke — GET /api returns 200
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api)
+          echo "HTTP status: $STATUS"
+          [ "$STATUS" = "200" ]
+
+      - name: Check restart stability
+        run: |
+          CONTAINER=$(docker compose -f compose.yml -f compose.dev.yml ps -q api)
+          RESTARTS=$(docker inspect "$CONTAINER" --format '{{.RestartCount}}')
+          echo "Restart count: $RESTARTS"
+          if [ "$RESTARTS" -gt 1 ]; then
+            echo "Dev container restarted $RESTARTS times — startup is flaky"
+            docker compose -f compose.yml -f compose.dev.yml logs api
+            exit 1
+          fi
+
+      - name: Hot-reload check — touch source file, API must recover
+        run: |
+          touch src/app.service.ts
+          echo "Source file touched, waiting for watcher to recompile..."
+          for i in $(seq 1 12); do
+            if curl -sf http://localhost:8080/api > /dev/null; then
+              echo "✓ API healthy after file change ($((i * 5))s)"
+              exit 0
+            fi
+            echo "  attempt $i/12 — sleeping 5s"
+            sleep 5
+          done
+          echo "✗ API did not recover after file change within 60s"
+          docker compose -f compose.yml -f compose.dev.yml logs api
+          exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.yml -f compose.dev.yml down -v
