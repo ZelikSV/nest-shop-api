@@ -65,30 +65,29 @@ export class OrdersService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let savedOrder: Order;
     try {
-      const savedOrder = await this.executeOrderTransaction(queryRunner, dto);
+      savedOrder = await this.executeOrderTransaction(queryRunner, dto);
       await queryRunner.commitTransaction();
-
-      await this.publishOrderCreated(savedOrder.id);
-      this.logger.log(`Order ${savedOrder.id} created successfully`);
-
-      const payment = await this.paymentsClientService.authorize({
-        orderId: savedOrder.id,
-        amount: Number(savedOrder.totalPrice),
-        currency: 'USD',
-        idempotencyKey: dto.idempotencyKey,
-      });
-      this.logger.log(
-        `Payment authorized: paymentId=${payment.paymentId} status=${payment.status}`,
-      );
-
-      return { ...savedOrder, paymentId: payment.paymentId, paymentStatus: payment.status };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       return this.handleCreateOrderError(error, dto);
     } finally {
       await queryRunner.release();
     }
+
+    await this.publishOrderCreated(savedOrder.id);
+    this.logger.log(`Order ${savedOrder.id} created successfully`);
+
+    const payment = await this.paymentsClientService.authorize({
+      orderId: savedOrder.id,
+      amount: Number(savedOrder.totalPrice),
+      currency: 'USD',
+      idempotencyKey: dto.idempotencyKey,
+    });
+    this.logger.log(`Payment authorized: paymentId=${payment.paymentId} status=${payment.status}`);
+
+    return { ...savedOrder, paymentId: payment.paymentId, paymentStatus: payment.status };
   }
 
   async findOrdersByUser(

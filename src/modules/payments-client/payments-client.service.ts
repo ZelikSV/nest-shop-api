@@ -70,7 +70,7 @@ export class PaymentsClientService implements OnModuleInit {
   }
 
   async authorize(data: AuthorizeRequest): Promise<AuthorizeResponse> {
-    const timeoutMs = this.config.get<number>('PAYMENTS_GRPC_TIMEOUT_MS', 5000);
+    const timeoutMs = Number(this.config.get('PAYMENTS_GRPC_TIMEOUT_MS', '5000'));
 
     return firstValueFrom(
       this.paymentsGrpc.authorize(data).pipe(
@@ -86,7 +86,7 @@ export class PaymentsClientService implements OnModuleInit {
   }
 
   async getPaymentStatus(data: GetPaymentStatusRequest): Promise<GetPaymentStatusResponse> {
-    const timeoutMs = this.config.get<number>('PAYMENTS_GRPC_TIMEOUT_MS', 5000);
+    const timeoutMs = Number(this.config.get('PAYMENTS_GRPC_TIMEOUT_MS', '5000'));
 
     return firstValueFrom(
       this.paymentsGrpc.getPaymentStatus(data).pipe(
