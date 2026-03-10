@@ -16,6 +16,8 @@ import {
   timeout,
   catchError,
   throwError,
+  retry,
+  timer,
 } from 'rxjs';
 
 import { PAYMENTS_GRPC_CLIENT } from './payments-client.constants';
@@ -56,6 +58,9 @@ const GRPC_NOT_FOUND = 5;
 const GRPC_UNAVAILABLE = 14;
 const GRPC_DEADLINE_EXCEEDED = 4;
 
+const RETRY_COUNT = 3;
+const RETRY_DELAY_MS = 500;
+
 @Injectable()
 export class PaymentsClientService implements OnModuleInit {
   private paymentsGrpc: PaymentsGrpcService;
@@ -75,6 +80,16 @@ export class PaymentsClientService implements OnModuleInit {
     return firstValueFrom(
       this.paymentsGrpc.authorize(data).pipe(
         timeout(timeoutMs),
+        retry({
+          count: RETRY_COUNT,
+          delay: (err: unknown, attempt) => {
+            const grpcErr = err as GrpcError;
+            if (grpcErr?.code !== GRPC_UNAVAILABLE) {
+              return throwError(() => err);
+            }
+            return timer(RETRY_DELAY_MS * attempt);
+          },
+        }),
         catchError((err: unknown) => {
           if (err instanceof TimeoutError) {
             return throwError(() => new GatewayTimeoutException('Payments service timeout'));
@@ -91,6 +106,16 @@ export class PaymentsClientService implements OnModuleInit {
     return firstValueFrom(
       this.paymentsGrpc.getPaymentStatus(data).pipe(
         timeout(timeoutMs),
+        retry({
+          count: RETRY_COUNT,
+          delay: (err: unknown, attempt) => {
+            const grpcErr = err as GrpcError;
+            if (grpcErr?.code !== GRPC_UNAVAILABLE) {
+              return throwError(() => err);
+            }
+            return timer(RETRY_DELAY_MS * attempt);
+          },
+        }),
         catchError((err: unknown) => {
           if (err instanceof TimeoutError) {
             return throwError(() => new GatewayTimeoutException('Payments service timeout'));
