@@ -55,7 +55,7 @@ export class OrdersService {
       const payment = await this.paymentsClientService.authorize({
         orderId: existingOrder.id,
         amount: Number(existingOrder.totalPrice),
-        currency: 'USD',
+        currency: 'UAH',
         idempotencyKey: dto.idempotencyKey,
       });
       return { ...existingOrder, paymentId: payment.paymentId, paymentStatus: payment.status };
@@ -82,7 +82,7 @@ export class OrdersService {
     const payment = await this.paymentsClientService.authorize({
       orderId: savedOrder.id,
       amount: Number(savedOrder.totalPrice),
-      currency: 'USD',
+      currency: 'UAH',
       idempotencyKey: dto.idempotencyKey,
     });
     this.logger.log(`Payment authorized: paymentId=${payment.paymentId} status=${payment.status}`);
