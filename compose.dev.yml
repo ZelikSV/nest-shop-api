@@ -36,8 +36,19 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
     ports:
       - "9229:9229"   # Node.js inspector (--debug / --inspect)
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - .:/app                # bind-mount: any file change is reflected immediately
       - /app/node_modules     # anonymous volume: preserves container's node_modules
     command: ["yarn", "start:dev"]
     restart: unless-stopped
+    healthcheck:
+      # node is always available in the dev image; curl/wget are not in slim variants
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # Long start_period covers initial TypeScript compilation in watch mode
+      start_period: 60s
