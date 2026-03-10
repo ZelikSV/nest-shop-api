@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package payments;
+
+service Payments {
+  rpc Authorize (AuthorizeRequest) returns (AuthorizeResponse);
+  rpc GetPaymentStatus (GetPaymentStatusRequest) returns (GetPaymentStatusResponse);
+  rpc Capture (CaptureRequest) returns (CaptureResponse);
+  rpc Refund (RefundRequest) returns (RefundResponse);
+}
+
+// Authorize — ініціює оплату для замовлення
+message AuthorizeRequest {
+  string order_id = 1;
+  double amount = 2;
+  string currency = 3;
+  string idempotency_key = 4;
+}
+
+message AuthorizeResponse {
+  string payment_id = 1;
+  string status = 2;
+}
+
+// GetPaymentStatus — повертає поточний статус оплати
+message GetPaymentStatusRequest {
+  string payment_id = 1;
+}
+
+message GetPaymentStatusResponse {
+  string payment_id = 1;
+  string status = 2;
+}
+
+// Capture — підтверджує авторизовану оплату (stub)
+message CaptureRequest {
+  string payment_id = 1;
+}
+
+message CaptureResponse {
+  string payment_id = 1;
+  string status = 2;
+}
+
+// Refund — повернення коштів (stub)
+message RefundRequest {
+  string payment_id = 1;
+}
+
+message RefundResponse {
+  string payment_id = 1;
+  string status = 2;
+}
