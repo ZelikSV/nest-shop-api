@@ -52,13 +52,7 @@ export class OrdersService {
       this.logger.log(
         `Returning existing order ${existingOrder.id} for idempotencyKey=${dto.idempotencyKey}`,
       );
-      const payment = await this.paymentsClientService.authorize({
-        orderId: existingOrder.id,
-        amount: Number(existingOrder.totalPrice),
-        currency: 'UAH',
-        idempotencyKey: dto.idempotencyKey,
-      });
-      return { ...existingOrder, paymentId: payment.paymentId, paymentStatus: payment.status };
+      return this.authorizeAndUpdateOrder(existingOrder, dto.idempotencyKey);
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -79,15 +73,53 @@ export class OrdersService {
     await this.publishOrderCreated(savedOrder.id);
     this.logger.log(`Order ${savedOrder.id} created successfully`);
 
-    const payment = await this.paymentsClientService.authorize({
-      orderId: savedOrder.id,
-      amount: Number(savedOrder.totalPrice),
-      currency: 'UAH',
-      idempotencyKey: dto.idempotencyKey,
-    });
-    this.logger.log(`Payment authorized: paymentId=${payment.paymentId} status=${payment.status}`);
+    return this.authorizeAndUpdateOrder(savedOrder, dto.idempotencyKey);
+  }
 
-    return { ...savedOrder, paymentId: payment.paymentId, paymentStatus: payment.status };
+  /**
+   * Calls Payments.Authorize and handles the status transition on the order:
+   *
+   * - Success: if order was `payment_failed` (retry), restore it to `pending`.
+   * - Failure (timeout / unavailable): mark order as `payment_failed` so it is
+   *   distinguishable from a brand-new pending order, and re-throw the HTTP
+   *   exception to the caller.
+   *
+   * The `idempotencyKey` is forwarded to the payments service, so retrying with
+   * the same key is safe — the payments service will return the existing payment
+   * if it was already created before the failure.
+   */
+  private async authorizeAndUpdateOrder(
+    order: Order,
+    idempotencyKey: string,
+  ): Promise<OrderWithPayment> {
+    try {
+      const payment = await this.paymentsClientService.authorize({
+        orderId: order.id,
+        amount: Number(order.totalPrice),
+        currency: 'UAH',
+        idempotencyKey,
+      });
+
+      if (order.status === OrderStatus.PAYMENT_FAILED) {
+        await this.orderRepository.update(order.id, { status: OrderStatus.PENDING });
+        this.logger.log(`Order ${order.id} re-authorized successfully, status restored to pending`);
+      } else {
+        this.logger.log(
+          `Payment authorized: paymentId=${payment.paymentId} status=${payment.status}`,
+        );
+      }
+
+      return { ...order, paymentId: payment.paymentId, paymentStatus: payment.status };
+    } catch (err) {
+      if (order.status !== OrderStatus.PAYMENT_FAILED) {
+        await this.orderRepository.update(order.id, { status: OrderStatus.PAYMENT_FAILED });
+        this.logger.warn(
+          `Payment authorization failed for order ${order.id} — status set to payment_failed. ` +
+            `Client may retry with the same idempotencyKey to re-attempt authorization.`,
+        );
+      }
+      throw err;
+    }
   }
 
   async findOrdersByUser(

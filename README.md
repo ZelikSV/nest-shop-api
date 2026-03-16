@@ -1386,6 +1386,70 @@ gRPC error codes are mapped to HTTP exceptions:
 | `UNAVAILABLE` (14) | 503 |
 | `DEADLINE_EXCEEDED` (4) | 504 |
 
+### Deterministic timeout demo (DEADLINE_EXCEEDED / HTTP 504)
+
+`payments-service` supports an artificial delay to simulate slow RPC responses.
+
+Env vars (read by `payments-service` only):
+- `PAYMENTS_DELAY_AUTHORIZE_MS`: delay before `Authorize` response
+- `PAYMENTS_DELAY_STATUS_MS`: delay before `GetPaymentStatus` response
+- `PAYMENTS_ARTIFICIAL_DELAY_MS`: fallback delay for all methods
+
+Manual demo:
+
+```bash
+# Terminal 1 — slow payments-service (3s delay)
+cd payments-service
+PAYMENTS_GRPC_PORT=5000 PAYMENTS_DELAY_AUTHORIZE_MS=3000 yarn start:dev
+
+# Terminal 2 — orders-service with 1s timeout
+cd ..
+PORT=3333 PAYMENTS_GRPC_URL=localhost:5000 PAYMENTS_GRPC_TIMEOUT_MS=1000 yarn start
+
+# Then create order via curl (see Happy path). Expected: HTTP 504.
+```
+
+Automated runtime check:
+
+```bash
+# Starts both services, runs happy path + deterministic timeout (expects 504), then stops them.
+yarn grpc:payments:check
+```
+
+### Payment failure strategy
+
+When `Payments.Authorize` fails (timeout → HTTP 504, service down → HTTP 503), the order has already been committed to the database. The following lifecycle applies:
+
+```
+POST /orders
+  └─► save order (status=pending)
+        └─► Payments.Authorize
+              ├─ success → return 201 { paymentId, paymentStatus: "AUTHORIZED" }
+              └─ failure → order.status = payment_failed → return 504 / 503
+```
+
+**Retry (same `idempotencyKey`):**
+
+```
+POST /orders  (same idempotencyKey)
+  └─► find existing order (status=payment_failed)
+        └─► Payments.Authorize  ← idempotencyKey forwarded; payments service
+              |                    returns existing payment if already created
+              ├─ success → order.status restored to pending → return 201
+              └─ failure → order stays payment_failed → return 504 / 503
+```
+
+| Order status     | Meaning                                                                     |
+|------------------|-----------------------------------------------------------------------------|
+| `pending`        | Created and payment authorized — awaiting processing                        |
+| `payment_failed` | Created but authorization failed; safe to retry with same `idempotencyKey`  |
+| `cancelled`      | Terminal — no further processing                                            |
+
+**Key properties:**
+- `payment_failed` orders are distinguishable in the DB from brand-new `pending` orders.
+- Retry is always safe: the `idempotencyKey` is forwarded to the payments service, which returns the existing payment record if one was already created before the transport failure.
+- A `payment_failed` order that is never retried requires manual review / admin cancellation.
+
 ### New files added
 
 ```

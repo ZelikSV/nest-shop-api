@@ -2,27 +2,56 @@ import { Controller } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { PaymentsService } from './payments.service';
 
+function parseDelayMs(val: string | undefined): number {
+  const n = Number(val);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+async function maybeDelay(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return;
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 @Controller()
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @GrpcMethod('Payments', 'Authorize')
-  authorize(data: { orderId: string; amount: number; currency: string; idempotencyKey: string }) {
+  async authorize(data: {
+    orderId: string;
+    amount: number;
+    currency: string;
+    idempotencyKey: string;
+  }) {
+    const delayMs =
+      parseDelayMs(process.env.PAYMENTS_DELAY_AUTHORIZE_MS) ||
+      parseDelayMs(process.env.PAYMENTS_ARTIFICIAL_DELAY_MS);
+    await maybeDelay(delayMs);
     return this.paymentsService.authorize(data);
   }
 
   @GrpcMethod('Payments', 'GetPaymentStatus')
-  getPaymentStatus(data: { paymentId: string }) {
+  async getPaymentStatus(data: { paymentId: string }) {
+    const delayMs =
+      parseDelayMs(process.env.PAYMENTS_DELAY_STATUS_MS) ||
+      parseDelayMs(process.env.PAYMENTS_ARTIFICIAL_DELAY_MS);
+    await maybeDelay(delayMs);
     return this.paymentsService.getPaymentStatus(data);
   }
 
   @GrpcMethod('Payments', 'Capture')
-  capture(data: { paymentId: string }) {
+  async capture(data: { paymentId: string }) {
+    const delayMs = parseDelayMs(process.env.PAYMENTS_ARTIFICIAL_DELAY_MS);
+    await maybeDelay(delayMs);
     return this.paymentsService.capture(data);
   }
 
   @GrpcMethod('Payments', 'Refund')
-  refund(data: { paymentId: string }) {
+  async refund(data: { paymentId: string }) {
+    const delayMs = parseDelayMs(process.env.PAYMENTS_ARTIFICIAL_DELAY_MS);
+    await maybeDelay(delayMs);
     return this.paymentsService.refund(data);
   }
 }

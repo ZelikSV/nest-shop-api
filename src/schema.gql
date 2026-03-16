@@ -62,6 +62,7 @@ enum OrderStatus {
 
   """Order has been delivered"""
   DELIVERED
+  PAYMENT_FAILED
 
   """Order is pending confirmation"""
   PENDING
