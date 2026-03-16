@@ -20,9 +20,15 @@ import { type OrderItemDto } from './dto/order-item.dto';
 import { OrderStatus } from '../../common/types/orders';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
 import { QUEUES, type OrderMessage } from '../rabbitmq/rabbitmq.constants';
+import { PaymentsClientService } from '../payments-client/payments-client.service';
 
 export interface OrderWithInvoice extends Order {
   invoiceUrl: string | null;
+}
+
+export interface OrderWithPayment extends Order {
+  paymentId: string;
+  paymentStatus: string;
 }
 
 @Injectable()
@@ -37,34 +43,51 @@ export class OrdersService {
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly rabbitmqService: RabbitmqService,
+    private readonly paymentsClientService: PaymentsClientService,
   ) {}
 
-  async createOrder(dto: CreateOrderDto): Promise<Order> {
+  async createOrder(dto: CreateOrderDto): Promise<OrderWithPayment> {
     const existingOrder = await this.findExistingOrder(dto.userId, dto.idempotencyKey);
     if (existingOrder) {
       this.logger.log(
         `Returning existing order ${existingOrder.id} for idempotencyKey=${dto.idempotencyKey}`,
       );
-      return existingOrder;
+      const payment = await this.paymentsClientService.authorize({
+        orderId: existingOrder.id,
+        amount: Number(existingOrder.totalPrice),
+        currency: 'UAH',
+        idempotencyKey: dto.idempotencyKey,
+      });
+      return { ...existingOrder, paymentId: payment.paymentId, paymentStatus: payment.status };
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let savedOrder: Order;
     try {
-      const savedOrder = await this.executeOrderTransaction(queryRunner, dto);
+      savedOrder = await this.executeOrderTransaction(queryRunner, dto);
       await queryRunner.commitTransaction();
-
-      await this.publishOrderCreated(savedOrder.id);
-      this.logger.log(`Order ${savedOrder.id} created successfully`);
-      return savedOrder;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       return this.handleCreateOrderError(error, dto);
     } finally {
       await queryRunner.release();
     }
+
+    await this.publishOrderCreated(savedOrder.id);
+    this.logger.log(`Order ${savedOrder.id} created successfully`);
+
+    const payment = await this.paymentsClientService.authorize({
+      orderId: savedOrder.id,
+      amount: Number(savedOrder.totalPrice),
+      currency: 'UAH',
+      idempotencyKey: dto.idempotencyKey,
+    });
+    this.logger.log(`Payment authorized: paymentId=${payment.paymentId} status=${payment.status}`);
+
+    return { ...savedOrder, paymentId: payment.paymentId, paymentStatus: payment.status };
   }
 
   async findOrdersByUser(
@@ -229,7 +252,10 @@ export class OrdersService {
     }
   }
 
-  private async handleCreateOrderError(error: unknown, dto: CreateOrderDto): Promise<Order> {
+  private async handleCreateOrderError(
+    error: unknown,
+    dto: CreateOrderDto,
+  ): Promise<OrderWithPayment> {
     if (error instanceof BadRequestException || error instanceof ConflictException) {
       throw error;
     }
@@ -240,7 +266,7 @@ export class OrdersService {
         this.logger.log(
           `Returning concurrent order ${concurrentOrder.id} for idempotencyKey=${dto.idempotencyKey}`,
         );
-        return concurrentOrder;
+        return { ...concurrentOrder, paymentId: '', paymentStatus: 'UNKNOWN' };
       }
     }
 

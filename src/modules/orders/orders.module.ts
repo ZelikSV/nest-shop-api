@@ -9,6 +9,7 @@ import { Product } from '../products/product.entity';
 import { FileRecord } from '../files/file-record.entity';
 import { ProductsModule } from '../products/products.module';
 import { StorageModule } from '../files/storage.module';
+import { PaymentsClientModule } from '../payments-client/payments-client.module';
 import { OrdersResolver, OrderItemResolver } from './graphql/orders.resolver';
 
 @Module({
@@ -16,6 +17,7 @@ import { OrdersResolver, OrderItemResolver } from './graphql/orders.resolver';
     TypeOrmModule.forFeature([Order, OrderItem, Product, FileRecord]),
     ProductsModule,
     StorageModule,
+    PaymentsClientModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, OrdersResolver, OrderItemResolver],

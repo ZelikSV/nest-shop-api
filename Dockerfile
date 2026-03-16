@@ -52,6 +52,7 @@ RUN groupadd --system nestjs \
 
 COPY --from=prod-deps --chown=nestjs:nestjs /app/node_modules ./node_modules
 COPY --from=build     --chown=nestjs:nestjs /app/dist         ./dist
+COPY --from=build     --chown=nestjs:nestjs /app/proto        ./proto
 COPY                  --chown=nestjs:nestjs package.json      ./
 
 ENV NODE_ENV=production
@@ -72,6 +73,7 @@ WORKDIR /app
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build     /app/dist         ./dist
+COPY --from=build     /app/proto        ./proto
 COPY --from=build     /app/package.json ./
 
 ENV NODE_ENV=production

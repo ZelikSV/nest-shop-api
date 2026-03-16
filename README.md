@@ -1263,6 +1263,154 @@ Check `processed_messages` table — exactly one row for that `messageId`.
 
 Pre-commit runs lint-staged and type-check. Pre-push runs build and tests. No broken code gets through.
 
+---
+
+## Homework 14 — gRPC Payments Service
+
+### Architecture
+
+Two separate NestJS processes communicate via gRPC:
+
+```
+orders-service  (HTTP :3333)
+  └── PaymentsClientModule
+        └── gRPC client → payments-service (:5000)
+                            └── PaymentsController (@GrpcMethod)
+                                  └── PaymentsService (in-memory store)
+
+Shared contract: proto/payments.proto
+```
+
+### Proto contract
+
+`proto/payments.proto` is the single source of truth. Both services reference this file at startup — **no code is imported across service boundaries**.
+
+```
+service Payments {
+  Authorize(orderId, amount, currency, idempotencyKey) → (paymentId, status)
+  GetPaymentStatus(paymentId)                          → (paymentId, status)
+  Capture(paymentId)                                   → stub
+  Refund(paymentId)                                    → stub
+}
+```
+
+### How proto is connected in each service
+
+| Service | Path resolution |
+|---------|----------------|
+| `payments-service` | `join(process.cwd(), '../proto/payments.proto')` |
+| `orders-service` | `join(process.cwd(), 'proto/payments.proto')` |
+
+### Running locally (2 terminals, 2 ports)
+
+**Prerequisites:** PostgreSQL on `localhost:5432` (or via Docker below), RabbitMQ on `localhost:5672`.
+
+```bash
+# Start local postgres + rabbitmq
+docker compose -f compose.yml -f compose.dev.yml up -d postgres rabbitmq
+
+# Run migrations
+npx ts-node -e "
+const { DataSource } = require('typeorm');
+const ds = new DataSource({ type:'postgres', host:'localhost', port:5432, username:'postgres', password:'postgres', database:'nest_shop', migrations:['dist/src/migrations/*.js'], synchronize:false });
+ds.initialize().then(()=>ds.runMigrations()).then(()=>ds.destroy());
+"
+
+# Terminal 1 — payments-service (gRPC :5000)
+cd payments-service
+PAYMENTS_GRPC_PORT=5000 npx ts-node -r tsconfig-paths/register src/main.ts
+
+# Terminal 2 — orders-service (HTTP :3333)
+cd ..
+yarn start:dev
+```
+
+**Required env vars** (already in `.env.example`):
+
+```env
+PAYMENTS_GRPC_URL=localhost:5000
+PAYMENTS_GRPC_TIMEOUT_MS=5000
+PAYMENTS_GRPC_PORT=5000
+```
+
+### Happy path (curl)
+
+```bash
+# 1. Create a product
+PRODUCT=$(curl -s -X POST http://localhost:3333/api/v1/products \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Widget X","price":49.99,"stock":50}')
+PRODUCT_ID=$(echo $PRODUCT | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+# 2. Register a user
+RESP=$(curl -s -X POST http://localhost:3333/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Happy","lastName":"Path","age":30,"email":"happy@path.com","password":"secret123"}')
+TOKEN=$(echo $RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
+USER_ID=$(echo $TOKEN | cut -d. -f2 | python3 -c "import sys,base64,json; p=sys.stdin.read().strip(); p+='='*(-len(p)%4); print(json.loads(base64.b64decode(p))['sub'])")
+
+# 3. Create order → triggers Payments.Authorize via gRPC
+curl -s -X POST http://localhost:3333/api/v1/orders \
+  -H "Content-Type: application/json" \
+  -d "{\"userId\":\"$USER_ID\",\"idempotencyKey\":\"order-001\",\"items\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}"
+```
+
+**Expected response (HTTP 201):**
+
+```json
+{
+  "id": "<uuid>",
+  "status": "pending",
+  "totalPrice": "49.99",
+  "paymentId": "<uuid>",
+  "paymentStatus": "AUTHORIZED"
+}
+```
+
+### Deadline / timeout
+
+Configured via `PAYMENTS_GRPC_TIMEOUT_MS` env var (default `5000` ms).
+
+Applied in `PaymentsClientService` via RxJS `timeout()` operator:
+
+```
+PAYMENTS_GRPC_TIMEOUT_MS=5000  →  timeout fires after 5 s
+  → GatewayTimeoutException (HTTP 504) returned to HTTP client
+```
+
+gRPC error codes are mapped to HTTP exceptions:
+
+| gRPC code | HTTP |
+|-----------|------|
+| `NOT_FOUND` (5) | 404 |
+| `UNAVAILABLE` (14) | 503 |
+| `DEADLINE_EXCEEDED` (4) | 504 |
+
+### New files added
+
+```
+proto/
+└── payments.proto                               ← shared gRPC contract
+
+payments-service/
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── main.ts                                  ← gRPC server bootstrap
+    ├── app.module.ts
+    └── payments/
+        ├── payments.module.ts
+        ├── payments.controller.ts               ← @GrpcMethod handlers
+        └── payments.service.ts                  ← in-memory store + idempotency
+
+src/modules/payments-client/
+├── payments-client.constants.ts                 ← injection token
+├── payments-client.module.ts                    ← ClientsModule.registerAsync
+└── payments-client.service.ts                   ← authorize() + getPaymentStatus() with timeout
+```
+
+---
+
 ## License
 
 ZelikSV
