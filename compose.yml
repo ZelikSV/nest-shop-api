@@ -1,0 +1,110 @@
+name: nest-shop-api
+
+networks:
+  # postgres lives only here — unreachable from the host machine
+  internal:
+    driver: bridge
+    internal: true
+  # api is accessible from outside (ports mapping)
+  public:
+    driver: bridge
+
+volumes:
+  pgdata:
+
+services:
+
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB:       ${DB_NAME:-nest_shop}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    # No `ports:` — postgres is NOT exposed to the host
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-nest_shop}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── NestJS API ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: prod
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_HOST:    postgres
+      NODE_ENV:   production
+      DB_SSL:     "false"
+    ports:
+      - "${API_PORT:-8080}:${PORT:-3000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+      - public
+    restart: unless-stopped
+
+  # ─── One-off jobs ────────────────────────────────────────────────────────────
+  # Not started by `docker compose up`.
+  # Run manually:
+  #   docker compose run --rm migrate
+  #   docker compose run --rm seed
+  # Or together with profile flag:
+  #   docker compose --profile tools run --rm migrate
+
+  migrate:
+    build:
+      context: .
+      target: prod
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_HOST: postgres
+      DB_SSL:  "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    command:
+      - node
+      - ./node_modules/typeorm/cli.js
+      - migration:run
+      - -d
+      - dist/config/data-source.js
+    restart: "no"
+    profiles:
+      - tools
+
+  seed:
+    build:
+      context: .
+      target: prod
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_HOST: postgres
+      DB_SSL:  "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    command: ["node", "dist/seeds/seed.js"]
+    restart: "no"
+    profiles:
+      - tools
