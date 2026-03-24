@@ -1,0 +1,113 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Immutable image tag to deploy (e.g. sha-abc1234f)'
+        required: true
+        type: string
+
+# Never run two production deploys in parallel.
+# cancel-in-progress: false means the running deploy finishes before the next one starts.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  ORDERS_API_IMAGE_NAME: ${{ github.repository }}/orders-api
+  PAYMENTS_IMAGE_NAME: ${{ github.repository }}/payments
+
+jobs:
+  deploy-prod:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    environment: production   # ← requires manual approval from reviewers
+
+    steps:
+      - name: Checkout (for compose files)
+        uses: actions/checkout@v4
+
+      - name: Resolve image references
+        id: images
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          echo "orders-api-image=${REGISTRY}/${ORDERS_API_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "payments-image=${REGISTRY}/${PAYMENTS_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release-manifest artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-manifest-${{ inputs.image_tag }}
+        # Note: artifacts are scoped to workflow runs. If the manifest is not found
+        # (e.g. deploying from a different workflow run), the deploy still proceeds
+        # using the image_tag input — images are immutable in GHCR.
+        continue-on-error: true
+
+      - name: Show deploy info
+        run: |
+          echo "========================================"
+          echo "  DEPLOYING TO PRODUCTION"
+          echo "========================================"
+          echo "  Image tag  : ${{ inputs.image_tag }}"
+          echo "  orders-api : ${{ steps.images.outputs.orders-api-image }}"
+          echo "  payments   : ${{ steps.images.outputs.payments-image }}"
+          echo "  Triggered by: ${{ github.actor }}"
+          echo "  Environment: production"
+          echo "========================================"
+          if [ -f release-manifest.json ]; then
+            echo "--- release-manifest.json ---"
+            cat release-manifest.json
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify image exists in registry (no rebuild)
+        run: |
+          docker pull ${{ steps.images.outputs.orders-api-image }}
+          docker pull ${{ steps.images.outputs.payments-image }}
+          echo "✓ Both images verified in registry — no rebuild performed"
+
+      - name: Run migrations
+        env:
+          ORDERS_API_IMAGE: ${{ steps.images.outputs.orders-api-image }}
+          PAYMENTS_IMAGE: ${{ steps.images.outputs.payments-image }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DB_USERNAME: ${{ vars.DB_USERNAME || 'postgres' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ vars.DB_NAME || 'nest_shop_prod' }}
+        run: |
+          docker compose -f compose.prod.yml --profile migrate run --rm migrate
+
+      - name: Start services
+        env:
+          ORDERS_API_IMAGE: ${{ steps.images.outputs.orders-api-image }}
+          PAYMENTS_IMAGE: ${{ steps.images.outputs.payments-image }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DB_USERNAME: ${{ vars.DB_USERNAME || 'postgres' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ vars.DB_NAME || 'nest_shop_prod' }}
+          API_PORT: ${{ vars.API_PORT || '8082' }}
+        run: docker compose -f compose.prod.yml up -d
+
+      - name: Smoke test — wait for /api
+        env:
+          API_PORT: ${{ vars.API_PORT || '8082' }}
+        run: bash scripts/smoke-test.sh "${API_PORT}" 20 5
+
+      - name: Production deploy summary
+        run: |
+          echo "✓ Production deploy complete"
+          echo "  Tag        : ${{ inputs.image_tag }}"
+          echo "  orders-api : ${{ steps.images.outputs.orders-api-image }}"
+          echo "  payments   : ${{ steps.images.outputs.payments-image }}"
+
+      - name: Tear down (CI runner is ephemeral)
+        if: always()
+        run: docker compose -f compose.prod.yml down -v
