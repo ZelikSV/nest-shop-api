@@ -1,0 +1,179 @@
+name: Build & Stage Deploy
+
+on:
+  push:
+    branches: [develop]
+
+# Cancel in-progress stage deploys when a new push arrives on develop.
+concurrency:
+  group: deploy-stage
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  ORDERS_API_IMAGE_NAME: ${{ github.repository }}/orders-api
+  PAYMENTS_IMAGE_NAME: ${{ github.repository }}/payments
+
+jobs:
+  # ── 1. Build Docker images and push to GHCR ──────────────────────────────────
+  build:
+    name: Build & Push images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.tag.outputs.value }}
+      orders-api-image: ${{ steps.tag.outputs.orders-api-image }}
+      payments-image: ${{ steps.tag.outputs.payments-image }}
+      orders-api-digest: ${{ steps.build-orders.outputs.digest }}
+      payments-digest: ${{ steps.build-payments.outputs.digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute immutable image tag (sha-<short-sha>)
+        id: tag
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          TAG="sha-${SHORT_SHA}"
+          echo "value=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "orders-api-image=${REGISTRY}/${ORDERS_API_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "payments-image=${REGISTRY}/${PAYMENTS_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: ${TAG}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push — orders-api
+        id: build-orders
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prod
+          push: true
+          tags: ${{ steps.tag.outputs.orders-api-image }}
+          cache-from: type=gha,scope=orders-api
+          cache-to: type=gha,mode=max,scope=orders-api
+
+      - name: Build & push — payments-service
+        id: build-payments
+        uses: docker/build-push-action@v6
+        with:
+          context: payments-service
+          target: prod
+          push: true
+          tags: ${{ steps.tag.outputs.payments-image }}
+          cache-from: type=gha,scope=payments
+          cache-to: type=gha,mode=max,scope=payments
+
+      - name: Generate release-manifest.json
+        run: |
+          cat > release-manifest.json <<EOF
+          {
+            "commit": "${GITHUB_SHA}",
+            "ref": "${GITHUB_REF}",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "tag": "${{ steps.tag.outputs.value }}",
+            "services": {
+              "orders-api": {
+                "image": "${{ steps.tag.outputs.orders-api-image }}",
+                "digest": "${{ steps.build-orders.outputs.digest }}"
+              },
+              "payments": {
+                "image": "${{ steps.tag.outputs.payments-image }}",
+                "digest": "${{ steps.build-payments.outputs.digest }}"
+              }
+            }
+          }
+          EOF
+          echo "--- release-manifest.json ---"
+          cat release-manifest.json
+
+      - name: Upload release-manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-${{ steps.tag.outputs.value }}
+          path: release-manifest.json
+          retention-days: 30
+
+  # ── 2. Deploy to stage environment ────────────────────────────────────────────
+  deploy-stage:
+    name: Deploy to stage
+    needs: build
+    runs-on: ubuntu-latest
+    environment: stage
+
+    steps:
+      - name: Checkout (for compose files)
+        uses: actions/checkout@v4
+
+      - name: Download release-manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: release-manifest-${{ needs.build.outputs.image-tag }}
+
+      - name: Show deploy info
+        run: |
+          echo "========================================"
+          echo "  DEPLOYING TO STAGE"
+          echo "========================================"
+          echo "  Commit SHA : ${GITHUB_SHA}"
+          echo "  Image tag  : ${{ needs.build.outputs.image-tag }}"
+          echo "  orders-api : ${{ needs.build.outputs.orders-api-image }}"
+          echo "  payments   : ${{ needs.build.outputs.payments-image }}"
+          echo "  Environment: stage"
+          echo "========================================"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull images
+        env:
+          ORDERS_API_IMAGE: ${{ needs.build.outputs.orders-api-image }}
+          PAYMENTS_IMAGE: ${{ needs.build.outputs.payments-image }}
+        run: docker compose -f compose.stage.yml pull payments api
+
+      - name: Run migrations
+        env:
+          ORDERS_API_IMAGE: ${{ needs.build.outputs.orders-api-image }}
+          PAYMENTS_IMAGE: ${{ needs.build.outputs.payments-image }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DB_USERNAME: ${{ vars.DB_USERNAME || 'postgres' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ vars.DB_NAME || 'nest_shop_stage' }}
+        run: |
+          docker compose -f compose.stage.yml --profile migrate run --rm migrate
+
+      - name: Start services
+        env:
+          ORDERS_API_IMAGE: ${{ needs.build.outputs.orders-api-image }}
+          PAYMENTS_IMAGE: ${{ needs.build.outputs.payments-image }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DB_USERNAME: ${{ vars.DB_USERNAME || 'postgres' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ vars.DB_NAME || 'nest_shop_stage' }}
+          API_PORT: ${{ vars.API_PORT || '8081' }}
+        run: docker compose -f compose.stage.yml up -d
+
+      - name: Smoke test — wait for /api
+        env:
+          API_PORT: ${{ vars.API_PORT || '8081' }}
+        run: bash scripts/smoke-test.sh "${API_PORT}" 20 5
+
+      - name: Tear down (CI runner is ephemeral)
+        if: always()
+        run: docker compose -f compose.stage.yml down -v

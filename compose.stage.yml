@@ -1,0 +1,113 @@
+# Stage environment — uses pre-built images from GHCR (no build:).
+# Deploy: docker compose -f compose.stage.yml up -d
+# Required env vars: ORDERS_API_IMAGE, PAYMENTS_IMAGE, JWT_SECRET
+name: nest-shop-stage
+
+networks:
+  internal:
+    driver: bridge
+    internal: true
+  public:
+    driver: bridge
+
+volumes:
+  pgdata-stage:
+  rabbitmqdata-stage:
+
+services:
+
+  # ─── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB:       ${DB_NAME:-nest_shop_stage}
+    volumes:
+      - pgdata-stage:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-nest_shop_stage}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── RabbitMQ ────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmqdata-stage:/var/lib/rabbitmq
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ─── Payments gRPC service ───────────────────────────────────────────────────
+  payments:
+    image: ${PAYMENTS_IMAGE}
+    restart: unless-stopped
+    environment:
+      PAYMENTS_GRPC_PORT: 5000
+    networks:
+      - internal
+
+  # ─── Migrations (one-off) ────────────────────────────────────────────────────
+  migrate:
+    image: ${ORDERS_API_IMAGE}
+    environment:
+      DB_HOST:  postgres
+      DB_SSL:   "false"
+      DB_NAME:  ${DB_NAME:-nest_shop_stage}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    command:
+      - node
+      - ./node_modules/typeorm/cli.js
+      - migration:run
+      - -d
+      - dist/config/data-source.js
+    restart: "no"
+    profiles:
+      - migrate
+
+  # ─── NestJS API ──────────────────────────────────────────────────────────────
+  api:
+    image: ${ORDERS_API_IMAGE}
+    restart: unless-stopped
+    environment:
+      NODE_ENV:         production
+      DB_HOST:          postgres
+      DB_SSL:           "false"
+      DB_NAME:          ${DB_NAME:-nest_shop_stage}
+      DB_USERNAME:      ${DB_USERNAME:-postgres}
+      DB_PASSWORD:      ${DB_PASSWORD:-postgres}
+      RABBITMQ_URL:     amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      PAYMENTS_GRPC_URL: payments:5000
+      JWT_SECRET:       ${JWT_SECRET}
+      PORT:             3000
+    ports:
+      - "${API_PORT:-8081}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - internal
+      - public

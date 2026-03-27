@@ -1475,6 +1475,92 @@ src/modules/payments-client/
 
 ---
 
+## CI/CD Pipeline
+
+### Overview
+
+```
+feature/* ──► PR ──► develop ──► [build + stage deploy]
+                                        │
+                                  manual trigger
+                                        │
+                                        ▼
+                               production deploy
+                              (with approval gate)
+```
+
+### Branch Strategy
+
+| Branch | Purpose | CI triggered |
+|--------|---------|-------------|
+| `feature/*` | Feature work | PR checks on PR open/update |
+| `develop` | Integration branch | Build + stage deploy on push |
+| `main` | Stable releases | (base for prod deploys) |
+
+### Workflows
+
+| File | Trigger | Jobs |
+|------|---------|------|
+| `.github/workflows/pr-checks.yml` | PR → `develop` or `main` | lint, type-check, unit tests, docker build validation |
+| `.github/workflows/build-and-stage.yml` | Push → `develop` | build images → push to GHCR → deploy stage → smoke test |
+| `.github/workflows/deploy-prod.yml` | Manual (`workflow_dispatch`) | approval gate → pull image → deploy prod → smoke test |
+
+### Immutable Artifact
+
+Every image is tagged `sha-<short-commit>` (e.g. `sha-abc1234f`).
+The same tag is used from `build` → `stage` → `production` — no rebuild.
+
+```json
+{
+  "commit": "abc1234f...",
+  "tag": "sha-abc1234f",
+  "services": {
+    "orders-api": {
+      "image": "ghcr.io/zeliksv/nest-shop-api/orders-api:sha-abc1234f",
+      "digest": "sha256:..."
+    },
+    "payments": {
+      "image": "ghcr.io/zeliksv/nest-shop-api/payments:sha-abc1234f",
+      "digest": "sha256:..."
+    }
+  }
+}
+```
+
+### GitHub Environments Setup
+
+Configure in **Settings → Environments**:
+
+**`stage`**
+- No approval required (auto-deploy)
+- Variables: `API_PORT=8081`, `DB_NAME=nest_shop_stage`
+- Secrets: `JWT_SECRET`, `DB_PASSWORD`
+
+**`production`**
+- Required reviewers: add yourself
+- Variables: `API_PORT=8082`, `DB_NAME=nest_shop_prod`
+- Secrets: `JWT_SECRET`, `DB_PASSWORD`
+
+### Running a Production Deploy
+
+1. Confirm stage deploy passed in the `build-and-stage` run
+2. Note the image tag from the workflow logs (e.g. `sha-abc1234f`)
+3. Go to **Actions → Deploy to Production → Run workflow**
+4. Enter the `image_tag` (e.g. `sha-abc1234f`)
+5. Approve in the **production** environment gate
+6. Monitor the workflow — smoke test confirms the deploy
+
+### Compose Files
+
+| File | Purpose |
+|------|---------|
+| `compose.yml` | Local dev stack (`build:` from source) |
+| `compose.dev.yml` | Dev override (hot reload, exposed ports) |
+| `compose.stage.yml` | Stage deploy (uses pre-built GHCR images, port 8081) |
+| `compose.prod.yml` | Production deploy (uses pre-built GHCR images, port 8082) |
+
+---
+
 ## License
 
 ZelikSV
