@@ -175,4 +175,8 @@ jobs:
 
       - name: Tear down (CI runner is ephemeral)
         if: always()
+        env:
+          ORDERS_API_IMAGE: placeholder
+          PAYMENTS_IMAGE: placeholder
+          JWT_SECRET: placeholder
         run: docker compose -f compose.stage.yml down -v
