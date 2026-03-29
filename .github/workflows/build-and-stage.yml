@@ -11,8 +11,6 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  ORDERS_API_IMAGE_NAME: ${{ github.repository }}/orders-api
-  PAYMENTS_IMAGE_NAME: ${{ github.repository }}/payments
 
 jobs:
   # ── 1. Build Docker images and push to GHCR ──────────────────────────────────
@@ -37,11 +35,12 @@ jobs:
       - name: Compute immutable image tag (sha-<short-sha>)
         id: tag
         run: |
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           SHORT_SHA="${GITHUB_SHA::8}"
           TAG="sha-${SHORT_SHA}"
           echo "value=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "orders-api-image=${REGISTRY}/${ORDERS_API_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
-          echo "payments-image=${REGISTRY}/${PAYMENTS_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "orders-api-image=${REGISTRY}/${REPO}/orders-api:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "payments-image=${REGISTRY}/${REPO}/payments:${TAG}" >> "$GITHUB_OUTPUT"
           echo "Image tag: ${TAG}"
 
       - name: Set up Docker Buildx

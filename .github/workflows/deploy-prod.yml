@@ -16,8 +16,6 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  ORDERS_API_IMAGE_NAME: ${{ github.repository }}/orders-api
-  PAYMENTS_IMAGE_NAME: ${{ github.repository }}/payments
 
 jobs:
   deploy-prod:
@@ -32,9 +30,10 @@ jobs:
       - name: Resolve image references
         id: images
         run: |
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           TAG="${{ inputs.image_tag }}"
-          echo "orders-api-image=${REGISTRY}/${ORDERS_API_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
-          echo "payments-image=${REGISTRY}/${PAYMENTS_IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "orders-api-image=${REGISTRY}/${REPO}/orders-api:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "payments-image=${REGISTRY}/${REPO}/payments:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Download release-manifest artifact
         uses: actions/download-artifact@v4
