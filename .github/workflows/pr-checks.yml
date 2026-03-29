@@ -1,0 +1,51 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  pr-checks:
+    name: Lint / Type-check / Tests / Docker build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # ── Quality gates ──────────────────────────────────────────────────────
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Type-check
+        run: yarn type-check
+
+      - name: Unit tests
+        run: yarn test --passWithNoTests
+
+      # ── Docker build validation (quality gate) ─────────────────────────────
+      # Ensures the production image builds successfully without pushing it.
+
+      - name: Docker build — orders-api (prod target)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prod
+          push: false
+
+      - name: Docker build — payments-service (prod target)
+        uses: docker/build-push-action@v6
+        with:
+          context: payments-service
+          target: prod
+          push: false
